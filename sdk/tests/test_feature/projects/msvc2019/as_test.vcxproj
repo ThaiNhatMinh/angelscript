@@ -620,6 +620,7 @@
     <ClCompile Include="..\..\source\test_import.cpp" />
     <ClCompile Include="..\..\source\test_import2.cpp" />
     <ClCompile Include="..\..\source\test_inheritance.cpp" />
+    <ClCompile Include="..\..\source\test_app_inherit.cpp" />
     <ClCompile Include="..\..\source\test_int8.cpp" />
     <ClCompile Include="..\..\source\test_interface.cpp" />
     <ClCompile Include="..\..\source\test_mixin.cpp" />

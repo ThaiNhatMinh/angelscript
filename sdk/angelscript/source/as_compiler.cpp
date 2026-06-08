@@ -48,6 +48,7 @@
 #ifndef AS_NO_COMPILER
 
 #include "as_compiler.h"
+#include "as_scriptobject.h"  // for sizeof(asCScriptObject)
 #include "as_tokendef.h"
 #include "as_tokenizer.h"
 #include "as_string_util.h"
@@ -179,19 +180,23 @@ int asCCompiler::CompileDefaultCopyConstructor(asCBuilder* in_builder, asCScript
 				ctx.bc.InstrWORD(asBC_VAR, (short)varOffset);
 				CompileVariableAccess("this", "", &ctx, 0);
 				ctx.bc.Instr(asBC_RDSPtr);
-				ctx.bc.InstrWORD(asBC_GETOBJ, AS_PTR_SIZE);
-				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copyconstruct, 2 * AS_PTR_SIZE);
-				ctx.bc.OptimizeLocally(tempVariableOffsets);
-			}
-			else
-			{
-				CompileVariableAccess("other", "", &ctx, 0);
+					if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+					ctx.bc.InstrWORD(asBC_GETOBJ, AS_PTR_SIZE);
+					ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copyconstruct, 2 * AS_PTR_SIZE);
+					ctx.bc.OptimizeLocally(tempVariableOffsets);
+				}
+				else
+				{
+					CompileVariableAccess("other", "", &ctx, 0);
 				ctx.bc.Instr(asBC_RDSPtr);
-				CompileVariableAccess("this", "", &ctx, 0);
-				ctx.bc.Instr(asBC_RDSPtr);
-				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copyconstruct, 2 * AS_PTR_SIZE);
-				ctx.bc.OptimizeLocally(tempVariableOffsets);
-			}
+					CompileVariableAccess("this", "", &ctx, 0);
+					ctx.bc.Instr(asBC_RDSPtr);
+					if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+					ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copyconstruct, 2 * AS_PTR_SIZE);
+					ctx.bc.OptimizeLocally(tempVariableOffsets);
+				}
 			byteCode.AddCode(&ctx.bc);
 			byteCode.InstrPTR(asBC_JitEntry, 0);
 		}
@@ -203,13 +208,17 @@ int asCCompiler::CompileDefaultCopyConstructor(asCBuilder* in_builder, asCScript
 			{
 				asCExprContext ctx(engine);
 				CompileVariableAccess("this", "", &ctx, 0);
-				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
+					if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+					ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
 
-				CompileVariableAccess("other", "", &ctx, 0);
+					CompileVariableAccess("other", "", &ctx, 0);
 				ctx.bc.Instr(asBC_RDSPtr);
-				CompileVariableAccess("this", "", &ctx, 0);
-				ctx.bc.Instr(asBC_RDSPtr);
-				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copy, 2 * AS_PTR_SIZE);
+					CompileVariableAccess("this", "", &ctx, 0);
+					ctx.bc.Instr(asBC_RDSPtr);
+					if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+					ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copy, 2 * AS_PTR_SIZE);
 
 				ctx.bc.OptimizeLocally(tempVariableOffsets);
 				byteCode.AddCode(&ctx.bc);
@@ -290,6 +299,8 @@ int asCCompiler::CompileDefaultConstructor(asCBuilder *in_builder, asCScriptCode
 		// Call the base class' default constructor
 		byteCode.InstrSHORT(asBC_PSF, 0);
 		byteCode.Instr(asBC_RDSPtr);
+		if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+			byteCode.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 		byteCode.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
 	}
 
@@ -831,12 +842,14 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 					asCByteCode tmpBC(engine);
 					tmpBC.InstrSHORT(asBC_PSF, 0);
 					tmpBC.Instr(asBC_RDSPtr);
-					tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
-					tmpBC.OptimizeLocally(tempVariableOffsets);
-					byteCode.AddCode(&tmpBC);
-				}
-				else
-					Error(TXT_BASE_DOESNT_HAVE_DEF_CONSTR, blockBegin);
+						if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+							tmpBC.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+						tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
+						tmpBC.OptimizeLocally(tempVariableOffsets);
+						byteCode.AddCode(&tmpBC);
+					}
+					else
+						Error(TXT_BASE_DOESNT_HAVE_DEF_CONSTR, blockBegin);
 			}
 
 			// Add the initialization of the members with explicit expressions
@@ -874,9 +887,11 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 						asCByteCode tmpBC(engine);
 						tmpBC.InstrSHORT(asBC_PSF, 0);
 						tmpBC.Instr(asBC_RDSPtr);
-						tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
-						tmpBC.OptimizeLocally(tempVariableOffsets);
-						byteCode.AddCode(&tmpBC);
+							if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+								tmpBC.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+							tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
+							tmpBC.OptimizeLocally(tempVariableOffsets);
+							byteCode.AddCode(&tmpBC);
 
 						// Add the initialization of the members with explicit expressions
 						CompileMemberInitialization(&byteCode, false);
@@ -7098,6 +7113,11 @@ bool asCCompiler::CompileRefCast(asCExprContext *ctx, const asCDataType &to, boo
 	// then check if the desired type is part of the hierarchy
 	if( !conversionDone && (ctx->type.dataType.GetTypeInfo()->flags & asOBJ_SCRIPT_OBJECT) )
 	{
+		// Hierarchy-based implicit cast only works for script-to-script.
+		// For script-to-app, opImplCast must be implemented on the class.
+		if (!(to.GetTypeInfo()->flags & asOBJ_SCRIPT_OBJECT))
+			return false;
+
 		// We need it to be a reference
 		if( !ctx->type.dataType.IsReference() )
 		{

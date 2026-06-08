@@ -254,6 +254,9 @@
     <ClCompile Include="..\..\source\test_inheritance.cpp">
       <Filter>tests</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\source\test_app_inherit.cpp">
+      <Filter>tests</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\source\test_int8.cpp">
       <Filter>tests</Filter>
     </ClCompile>

@@ -2260,8 +2260,8 @@ int asCScriptEngine::RegisterBehaviourToObjectType(asCObjectType *objectType, as
 	}
 	else if( behaviour == asBEHAVE_DESTRUCT )
 	{
-		// Must be a value type
-		if( !(func.objectType->flags & asOBJ_VALUE) )
+		// Must be a value or ref type
+		if( !(func.objectType->flags & (asOBJ_VALUE | asOBJ_REF)) )
 		{
 			WriteMessage("", 0, 0, asMSGTYPE_ERROR, TXT_ILLEGAL_BEHAVIOUR_FOR_TYPE);
 			return ConfigError(asILLEGAL_BEHAVIOUR_FOR_TYPE, "RegisterObjectBehaviour", objectType->name.AddressOf(), decl);

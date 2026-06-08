@@ -701,7 +701,10 @@ void asCScriptObject::CallDestructor()
 			int r = ctx->Prepare(objType->engine->scriptFunctions[funcIndex]);
 			if( r >= 0 )
 			{
-				ctx->SetObject(this);
+				if (ot->flags & asOBJ_SCRIPT_OBJECT)
+					ctx->SetObject(this);
+				else
+					ctx->SetObject((void*)((char*)this + sizeof(asCScriptObject)));
 
 				for(;;)
 				{
