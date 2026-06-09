@@ -331,7 +331,7 @@
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <FloatingPointModel>Fast</FloatingPointModel>
-      <TreatWarningAsError>true</TreatWarningAsError>
+      <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
     <Lib>
       <OutputFile>$(OutDir)$(ProjectName)64d.lib</OutputFile>

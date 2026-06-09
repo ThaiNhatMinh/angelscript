@@ -839,17 +839,36 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 				if (outFunc->objectType->derivedFrom->beh.construct)
 				{
 					// Call base class' constructor
+#if 1
+
+					// Call the constructor as a normal function
+					/*asCByteCode tmpBC(engine);
+					tmpBC.InstrSHORT(asBC_PSF, 0);
+
+					asCExprContext ctxCall(engine);
+					PerformFunctionCall(outFunc->objectType->derivedFrom->beh.construct, &ctxCall, false, 0, outFunc->objectType);
+					tmpBC.AddCode(&ctxCall.bc);
+					tmpBC.OptimizeLocally(tempVariableOffsets);
+					byteCode.AddCode(&tmpBC);*/
+
+					asCExprContext ctxCall(engine);
+					asCArray<asCExprContext*> args;
+					int varSize = GetVariableOffset((int)variableAllocations.GetLength()) - 1;
+					r = MakeFunctionCall(&ctxCall, outFunc->objectType->derivedFrom->beh.construct, outFunc->objectType, args, in_func, false, 0, varSize);
+
+#else
 					asCByteCode tmpBC(engine);
 					tmpBC.InstrSHORT(asBC_PSF, 0);
 					tmpBC.Instr(asBC_RDSPtr);
-						if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
-							tmpBC.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
-						tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
-						tmpBC.OptimizeLocally(tempVariableOffsets);
-						byteCode.AddCode(&tmpBC);
-					}
-					else
-						Error(TXT_BASE_DOESNT_HAVE_DEF_CONSTR, blockBegin);
+					if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						tmpBC.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+					tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
+					tmpBC.OptimizeLocally(tempVariableOffsets);
+					byteCode.AddCode(&tmpBC);
+#endif
+				}
+				else
+					Error(TXT_BASE_DOESNT_HAVE_DEF_CONSTR, blockBegin);
 			}
 
 			// Add the initialization of the members with explicit expressions

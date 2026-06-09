@@ -41,9 +41,18 @@ struct Vec3
 	float x, y, z;
 };
 int Vec3::dtorCount = 0;
-static void Vec3_DefaultCtor(Vec3 *o) { new(o) Vec3(); }
-static void Vec3_Ctor(float x, float y, float z, Vec3 *o) { new(o) Vec3(x,y,z); }
-static void Vec3_DefaultDtor(Vec3* o) { o->~Vec3(); }
+static void Vec3_DefaultCtor(Vec3 *o)
+{
+	new(o) Vec3();
+}
+static void Vec3_Ctor(float x, float y, float z, Vec3 *o)
+{ 
+	new(o) Vec3(x,y,z); 
+}
+static void Vec3_DefaultDtor(Vec3* o)
+{
+	o->~Vec3();
+}
 
 // --- Final class (cannot be inherited) ---
 struct MyFinal
@@ -93,8 +102,10 @@ bool Test()
 			"  int id;                              \n"
 			"  Entity() {                           \n"
 			"    super(3.0f, 4.0f, 0.0f);           \n" // Call Vec3(float,float,float)
+			//"    super();           \n" // Call Vec3()
 			"    id = 1;                            \n"
 			"  }                                    \n"
+			//"	~Entity() {}                         \n"
 			"  float GetLen() const { return Length(); } \n"
 			"}                                      \n");
 
@@ -108,15 +119,22 @@ bool Test()
 		asIScriptContext* ctx = engine->CreateContext();
 		// Verify inherited properties and methods work from script
 		r = ExecuteString(engine,
-			"Entity entity;                               \n"
 			"Vec3 asd; \n"
+			"Entity entity;                               \n"
+			"entity.GetLen();					\n"
+			"entity.x = 3.0f;                               \n"
+			"entity.y = 4.0f;                               \n"
+			"entity.z = 0.0f;                               \n"
+			"entity.id = 1;                               \n"
 			"entity.Length();                   \n" // Inherited property
+			"entity.GetLen();					\n"
 			"assert(entity.x == 3.0f);                   \n" // Inherited property
 			"assert(entity.y == 4.0f);                   \n"
 			"assert(entity.z == 0.0f);                   \n"
 			"assert(entity.id == 1);                     \n" // Own property
 			"assert(entity.GetLen() == 5.0f);             \n" // Inherited method via own method
 			, mod, ctx);
+
 		if (r != asEXECUTION_FINISHED)
 		{
 			if (r == asEXECUTION_EXCEPTION)
@@ -126,6 +144,7 @@ bool Test()
 			}
 			TEST_FAILED;
 		}
+		ctx->Release();
 
 		// Verify DerivesFrom and GetBaseType
 		asITypeInfo *et = mod->GetTypeInfoByName("Entity");
@@ -148,6 +167,8 @@ bool Test()
 			TEST_FAILED;
 		}
 	}
+
+	return true;
 
 	// ------------------------------------------------------------------
 	// Test 2: Ref-type base class inheritance

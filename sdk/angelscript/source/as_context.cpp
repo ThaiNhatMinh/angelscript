@@ -3218,21 +3218,29 @@ static const void *const dispatch_table[256] = {
 				m_regs.stackPointer      = l_sp;
 				m_regs.stackFramePointer = l_fp;
 
-				if( objType->flags & asOBJ_REF )
+				if( objType->flags & asOBJ_SCRIPT_OBJECT )
 				{
-					asASSERT( (objType->flags & asOBJ_NOCOUNT) || beh->release );
-					if( beh->release )
-						m_engine->CallObjectMethod((void*)(asPWORD)*a, beh->release);
-				}
-				else
-				{
-					if( beh->destruct )
-						m_engine->CallObjectMethod((void*)(asPWORD)*a, beh->destruct);
-					else if( objType->flags & asOBJ_LIST_PATTERN )
-						m_engine->DestroyList((asBYTE*)(asPWORD)*a, objType);
+						// Script objects must go through Release() to ensure
+						// CallDestructor() walks the derivedFrom chain and calls
+						// all base class destructors (e.g. Vec3 subobject in Entity : Vec3)
+						asASSERT( beh->release );
+						((asCScriptObject*)(asPWORD)*a)->Release();
+					}
+					else if( objType->flags & asOBJ_REF )
+					{
+						asASSERT( (objType->flags & asOBJ_NOCOUNT) || beh->release );
+						if( beh->release )
+							m_engine->CallObjectMethod((void*)(asPWORD)*a, beh->release);
+					}
+					else
+					{
+						if( beh->destruct )
+							m_engine->CallObjectMethod((void*)(asPWORD)*a, beh->destruct);
+						else if( objType->flags & asOBJ_LIST_PATTERN )
+							m_engine->DestroyList((asBYTE*)(asPWORD)*a, objType);
 
-					m_engine->CallFree((void*)(asPWORD)*a);
-				}
+						m_engine->CallFree((void*)(asPWORD)*a);
+					}
 
 				// Clear the variable
 				*a = 0;
@@ -5394,6 +5402,10 @@ void asCContext::CleanArgsOnStack()
 				{
 					(*(asCScriptFunction**)&m_regs.stackPointer[offset])->Release();
 				}
+				else if( func->parameterTypes[n].GetTypeInfo()->flags & asOBJ_SCRIPT_OBJECT )
+				{
+						((asCScriptObject*)*(asPWORD*)&m_regs.stackPointer[offset])->Release();
+				}
 				else if( func->parameterTypes[n].GetTypeInfo()->flags & asOBJ_REF )
 				{
 					asASSERT( (func->parameterTypes[n].GetTypeInfo()->flags & asOBJ_NOCOUNT) || beh->release );
@@ -5562,6 +5574,12 @@ bool asCContext::CleanStackFrame(bool catchException)
 						{
 							(*(asCScriptFunction**)&m_regs.stackFramePointer[-pos])->Release();
 						}
+						else if (m_currentFunction->scriptData->variables[n]->type.GetTypeInfo()->flags & asOBJ_SCRIPT_OBJECT)
+						{
+							asCScriptObject *obj = *(asCScriptObject**)(asPWORD*)&m_regs.stackFramePointer[-pos];
+							if( obj )
+								obj->Release();
+						}
 						else if (m_currentFunction->scriptData->variables[n]->type.GetTypeInfo()->flags & asOBJ_REF)
 						{
 							asSTypeBehaviour* beh = &CastToObjectType(m_currentFunction->scriptData->variables[n]->type.GetTypeInfo())->beh;
@@ -5592,12 +5610,12 @@ bool asCContext::CleanStackFrame(bool catchException)
 					asASSERT(m_currentFunction->scriptData->variables[n]->type.GetTypeInfo() && m_currentFunction->scriptData->variables[n]->type.GetTypeInfo()->GetFlags() & asOBJ_VALUE);
 
 					asSTypeBehaviour* beh = &CastToObjectType(m_currentFunction->scriptData->variables[n]->type.GetTypeInfo())->beh;
-					if( beh->destruct )
-						m_engine->CallObjectMethod((void*)(asPWORD*)&m_regs.stackFramePointer[-pos], beh->destruct);
+						if( beh->destruct )
+							m_engine->CallObjectMethod((void*)(asPWORD*)&m_regs.stackFramePointer[-pos], beh->destruct);
+					}
 				}
 			}
 		}
-	}
 	else
 		m_isStackMemoryNotAllocated = false;
 
@@ -5630,6 +5648,10 @@ bool asCContext::CleanStackFrame(bool catchException)
 				if (m_currentFunction->parameterTypes[n].GetTypeInfo()->flags & asOBJ_FUNCDEF)
 				{
 					(*(asCScriptFunction**)&m_regs.stackFramePointer[offset])->Release();
+				}
+				else if( m_currentFunction->parameterTypes[n].GetTypeInfo()->flags & asOBJ_SCRIPT_OBJECT )
+				{
+					((asCScriptObject*)*(asPWORD*)&m_regs.stackFramePointer[offset])->Release();
 				}
 				else if( m_currentFunction->parameterTypes[n].GetTypeInfo()->flags & asOBJ_REF )
 				{

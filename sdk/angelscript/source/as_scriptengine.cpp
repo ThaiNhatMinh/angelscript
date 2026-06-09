@@ -5747,7 +5747,15 @@ void asCScriptEngine::ReleaseScriptObject(void *obj, const asITypeInfo *type)
 	else
 	{
 		asCObjectType *objType = CastToObjectType(const_cast<asCTypeInfo*>(ti));
-		if (objType && objType->flags & asOBJ_REF)
+		if (objType && objType->flags & asOBJ_SCRIPT_OBJECT)
+		{
+			asASSERT((objType->flags & asOBJ_NOCOUNT) || objType->beh.release);
+			// Script objects must go through Release() to ensure
+			// CallDestructor() walks the derivedFrom chain and calls
+			// all base class destructors
+			((asCScriptObject*)obj)->Release();
+		}
+		else if (objType && objType->flags & asOBJ_REF)
 		{
 			asASSERT((objType->flags & asOBJ_NOCOUNT) || objType->beh.release);
 			if (objType->beh.release)

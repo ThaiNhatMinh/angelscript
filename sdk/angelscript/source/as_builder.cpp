@@ -3426,6 +3426,8 @@ void asCBuilder::DetermineTypeRelations()
 								if (!(objType->flags & asOBJ_SCRIPT_OBJECT))
 								{
 									CastToObjectType(decl->typeInfo)->flags = objType->flags | asOBJ_SCRIPT_OBJECT;
+									// Temporary set destruct behavior
+									CastToObjectType(decl->typeInfo)->beh.destruct = objType->beh.destruct;
 								}
 								objType->AddRefInternal();
 							}
@@ -3502,7 +3504,7 @@ void asCBuilder::CompileClasses(asUINT numTempl)
 		if( !decl->isExistingShared && ot->derivedFrom )
 		{
 			asCObjectType *baseType = ot->derivedFrom;
-			bool isScriptBase = (baseType->flags & asOBJ_SCRIPT_OBJECT) != 0;
+			bool isBaseTypeScript = (baseType->flags & asOBJ_SCRIPT_OBJECT) != 0;
 
 			// The derived class inherits all interfaces from the base class
 			for( unsigned int m = 0; m < baseType->interfaces.GetLength(); m++ )
@@ -3519,15 +3521,19 @@ void asCBuilder::CompileClasses(asUINT numTempl)
 				asCObjectProperty *prop = AddPropertyToClass(decl, baseType->properties[p]->name, baseType->properties[p]->type, baseType->properties[p]->isPrivate, baseType->properties[p]->isProtected, true);
 
 				// The properties must maintain the correct offset (relative to their headers)
-				if (isScriptBase)
+				if (isBaseTypeScript)
 					asASSERT(prop && prop->byteOffset == baseType->properties[p]->byteOffset);
 				else
+				{
+					auto BaseOffset = baseType->properties[p]->byteOffset;
+					auto ChildOffset = prop->byteOffset;
 					asASSERT(prop && prop->byteOffset == baseType->properties[p]->byteOffset + sizeof(asCScriptObject));
+				}
 				UNUSED_VAR(prop);
 			}
 
 			// Copy methods from base class to derived class
-			if (isScriptBase)
+			if (isBaseTypeScript)
 			{
 				for( asUINT m = 0; m < baseType->methods.GetLength(); m++ )
 				{
