@@ -11269,7 +11269,13 @@ int asCCompiler::CompileVariableAccess(const asCString &name, const asCString &s
 				Dereference(ctx, true);
 			}
 
-			// TODO: This is the same as what is in CompileExpressionPostOp
+			// Adjust the pointer for composite member
+			// This is the same as what is in CompileExpressionPostOp
+			if( prop->compositeOffset || prop->isCompositeIndirect )
+				ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->compositeOffset, engine->GetTypeIdFromDataType(dt));
+			if (prop->isCompositeIndirect)
+				ctx->bc.Instr(asBC_RDSPtr);
+
 			// Put the offset on the stack
 			ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(dt));
 

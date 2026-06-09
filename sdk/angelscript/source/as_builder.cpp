@@ -3520,6 +3520,10 @@ void asCBuilder::CompileClasses(asUINT numTempl)
 			{
 				asCObjectProperty *prop = AddPropertyToClass(decl, baseType->properties[p]->name, baseType->properties[p]->type, baseType->properties[p]->isPrivate, baseType->properties[p]->isProtected, true);
 
+				// Preserve the composite offset information from the base class property
+				prop->compositeOffset = baseType->properties[p]->compositeOffset;
+				prop->isCompositeIndirect = baseType->properties[p]->isCompositeIndirect;
+
 				// The properties must maintain the correct offset (relative to their headers)
 				if (isBaseTypeScript)
 					asASSERT(prop && prop->byteOffset == baseType->properties[p]->byteOffset);
