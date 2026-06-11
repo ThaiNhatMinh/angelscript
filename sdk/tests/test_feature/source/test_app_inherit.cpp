@@ -122,20 +122,20 @@ bool Test()
 		// Verify inherited properties and methods work from script
 		r = ExecuteString(engine,
 			"Vec3 asd; \n"
-			//"Widget w; w.CallMe(); assert(w.vasd == 42); assert(w.b); \n"
-			//"Entity entity;                               \n"
-			//"entity.GetLen();					\n"
-			//"entity.x = 3.0f;                               \n"
-			//"entity.y = 4.0f;                               \n"
-			//"entity.z = 0.0f;                               \n"
-			//"entity.id = 1;                               \n"
-			//"entity.Length();                   \n" // Inherited property
-			//"entity.GetLen();					\n"
-			//"assert(entity.x == 3.0f);                   \n" // Inherited property
-			//"assert(entity.y == 4.0f);                   \n"
-			//"assert(entity.z == 0.0f);                   \n"
-			//"assert(entity.id == 1);                     \n" // Own property
-			//"assert(entity.GetLen() == 5.0f);             \n" // Inherited method via own method
+			"Widget w; w.CallMe(); assert(w.vasd == 42); assert(w.b); \n"
+			"Entity entity;                               \n"
+			"entity.GetLen();					\n"
+			"entity.x = 3.0f;                               \n"
+			"entity.y = 4.0f;                               \n"
+			"entity.z = 0.0f;                               \n"
+			"entity.id = 1;                               \n"
+			"entity.Length();                   \n" // Inherited property
+			"entity.GetLen();					\n"
+			"assert(entity.x == 3.0f);                   \n" // Inherited property
+			"assert(entity.y == 4.0f);                   \n"
+			"assert(entity.z == 0.0f);                   \n"
+			"assert(entity.id == 1);                     \n" // Own property
+			"assert(entity.GetLen() == 5.0f);             \n" // Inherited method via own method
 			, mod, ctx);
 
 		if (r != asEXECUTION_FINISHED)
@@ -165,8 +165,6 @@ bool Test()
 		engine->GarbageCollect();
 		engine->ShutDownAndRelease();
 	}
-
-	return true;
 
 	// ------------------------------------------------------------------
 	// Test 2: Ref-type base class inheritance

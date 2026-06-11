@@ -851,8 +851,18 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 					tmpBC.OptimizeLocally(tempVariableOffsets);
 					byteCode.AddCode(&tmpBC);*/
 
-					asCByteCode tmpBC(engine);
+					//asCByteCode tmpBC(engine);
+					
+
 					asCExprContext ctxCall(engine);
+
+					// The object pointer is located at stack position 0
+					ctxCall.bc.InstrSHORT(asBC_PSF, 0);
+					ctxCall.type.SetVariable(asCDataType::CreateType(outFunc->objectType, false), 0, false);
+					ctxCall.type.dataType.MakeReference(true);
+
+					Dereference(&ctxCall, true);
+
 					asCArray<asCExprContext*> args;
 					int varSize = GetVariableOffset((int)variableAllocations.GetLength()) - 1;
 					r = MakeFunctionCall(&ctxCall, outFunc->objectType->derivedFrom->beh.construct, outFunc->objectType, args, in_func, false, 0, varSize);
@@ -17473,7 +17483,7 @@ void asCCompiler::PerformFunctionCall(int funcId, asCExprContext *ctx, bool isCo
 			ctx->bc.Call(asBC_CALL    , descr->id, argSize);
 		else if( descr->funcType == asFUNC_SYSTEM )
 		{
-			if (objType->derivedFrom && !(objType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+			if (objType && objType->derivedFrom && !(objType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
 				ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 			// Check if we can use the faster asBC_Thiscall1 instruction, i.e. one of
 			//    type &obj::func(int)
