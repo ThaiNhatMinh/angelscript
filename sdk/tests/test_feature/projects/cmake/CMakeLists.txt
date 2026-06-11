@@ -77,6 +77,7 @@ add_executable(
         ../../source/test_import.cpp
         ../../source/test_import2.cpp
         ../../source/test_inheritance.cpp
+        ../../source/test_app_inherit.cpp
         ../../source/test_int8.cpp
         ../../source/test_interface.cpp
         ../../source/test_mixin.cpp

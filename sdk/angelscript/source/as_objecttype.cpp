@@ -647,7 +647,7 @@ void asCObjectType::ReleaseAllFunctions()
 		engine->scriptFunctions[beh.listFactory]->ReleaseInternal();
 	beh.listFactory = 0;
 
-	if( beh.destruct )
+	if( beh.destruct && engine->scriptFunctions[beh.destruct]->funcType != asFUNC_SYSTEM)
 		engine->scriptFunctions[beh.destruct]->ReleaseInternal();
 	beh.destruct  = 0;
 

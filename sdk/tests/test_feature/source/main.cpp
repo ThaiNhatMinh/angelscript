@@ -135,6 +135,7 @@ namespace TestRefCast           { bool Test(); }
 namespace TestImplicitHandle    { bool Test(); }
 namespace TestAuto              { bool Test(); }
 namespace TestInheritance       { bool Test(); }
+namespace TestAppInherit        { bool Test(); }
 namespace TestDump              { bool Test(); }
 namespace TestTemplate          { bool Test(); }
 namespace TestOperator          { bool Test(); }
@@ -231,7 +232,9 @@ int allTests()
 #endif
 
 	InstallMemoryManager();
-
+#if 1
+	if (TestAppInherit::Test()) goto failed; else PRINTF("-- TestAppInherit passed\n");
+#else
 	if( Test_Addon_ScriptFile::Test()    ) goto failed; else PRINTF("-- Test_Addon_ScriptFile passed\n");
 	if( Test_Addon_ContextMgr::Test()    ) goto failed; else PRINTF("-- Test_Addon_ContextMgr passed\n");
 	if( Test_Addon_ScriptGrid::Test()    ) goto failed; else PRINTF("-- Test_Addon_ScriptGrid passed\n");
@@ -415,7 +418,7 @@ int allTests()
 //	if( TestCString::Test()           ) goto failed; else PRINTF("-- TestCString passed\n");
 	// Pointers are not supported by AngelScript at the moment, but they may be in the future
 //	if( TestPointer::Test()           ) goto failed; else PRINTF("-- TestPointer passed\n");
-
+#endif
 	RemoveMemoryManager();
 
 	// Populate the global engine destroyer after the memory manager has

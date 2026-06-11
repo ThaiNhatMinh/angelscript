@@ -697,11 +697,14 @@ void asCScriptObject::CallDestructor()
 					}
 				}
 			}
-
-			int r = ctx->Prepare(objType->engine->scriptFunctions[funcIndex]);
+			auto DestructFunc = objType->engine->scriptFunctions[funcIndex];
+			int r = ctx->Prepare(DestructFunc);
 			if( r >= 0 )
 			{
-				ctx->SetObject(this);
+				if (DestructFunc->objectType->flags & asOBJ_SCRIPT_OBJECT)
+					ctx->SetObject(this);
+				else
+					ctx->SetObject((void*)((char*)this + sizeof(asCScriptObject)));
 
 				for(;;)
 				{

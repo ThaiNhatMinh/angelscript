@@ -48,6 +48,7 @@
 #ifndef AS_NO_COMPILER
 
 #include "as_compiler.h"
+#include "as_scriptobject.h"  // for sizeof(asCScriptObject)
 #include "as_tokendef.h"
 #include "as_tokenizer.h"
 #include "as_string_util.h"
@@ -179,6 +180,8 @@ int asCCompiler::CompileDefaultCopyConstructor(asCBuilder* in_builder, asCScript
 				ctx.bc.InstrWORD(asBC_VAR, (short)varOffset);
 				CompileVariableAccess("this", "", &ctx, 0);
 				ctx.bc.Instr(asBC_RDSPtr);
+					// if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						// ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 				ctx.bc.InstrWORD(asBC_GETOBJ, AS_PTR_SIZE);
 				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copyconstruct, 2 * AS_PTR_SIZE);
 				ctx.bc.OptimizeLocally(tempVariableOffsets);
@@ -189,6 +192,8 @@ int asCCompiler::CompileDefaultCopyConstructor(asCBuilder* in_builder, asCScript
 				ctx.bc.Instr(asBC_RDSPtr);
 				CompileVariableAccess("this", "", &ctx, 0);
 				ctx.bc.Instr(asBC_RDSPtr);
+				// if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+					// ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copyconstruct, 2 * AS_PTR_SIZE);
 				ctx.bc.OptimizeLocally(tempVariableOffsets);
 			}
@@ -203,12 +208,16 @@ int asCCompiler::CompileDefaultCopyConstructor(asCBuilder* in_builder, asCScript
 			{
 				asCExprContext ctx(engine);
 				CompileVariableAccess("this", "", &ctx, 0);
+					// if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						// ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
 
 				CompileVariableAccess("other", "", &ctx, 0);
 				ctx.bc.Instr(asBC_RDSPtr);
 				CompileVariableAccess("this", "", &ctx, 0);
 				ctx.bc.Instr(asBC_RDSPtr);
+					// if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						// ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 				ctx.bc.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.copy, 2 * AS_PTR_SIZE);
 
 				ctx.bc.OptimizeLocally(tempVariableOffsets);
@@ -290,6 +299,8 @@ int asCCompiler::CompileDefaultConstructor(asCBuilder *in_builder, asCScriptCode
 		// Call the base class' default constructor
 		byteCode.InstrSHORT(asBC_PSF, 0);
 		byteCode.Instr(asBC_RDSPtr);
+		// if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+			// byteCode.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 		byteCode.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
 	}
 
@@ -828,12 +839,37 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 				if (outFunc->objectType->derivedFrom->beh.construct)
 				{
 					// Call base class' constructor
+#if 1
+
+					// Call the constructor as a normal function
+					/*asCByteCode tmpBC(engine);
+					tmpBC.InstrSHORT(asBC_PSF, 0);
+
+					asCExprContext ctxCall(engine);
+					PerformFunctionCall(outFunc->objectType->derivedFrom->beh.construct, &ctxCall, false, 0, outFunc->objectType);
+					tmpBC.AddCode(&ctxCall.bc);
+					tmpBC.OptimizeLocally(tempVariableOffsets);
+					byteCode.AddCode(&tmpBC);*/
+
+					asCByteCode tmpBC(engine);
+					asCExprContext ctxCall(engine);
+					asCArray<asCExprContext*> args;
+					int varSize = GetVariableOffset((int)variableAllocations.GetLength()) - 1;
+					r = MakeFunctionCall(&ctxCall, outFunc->objectType->derivedFrom->beh.construct, outFunc->objectType, args, in_func, false, 0, varSize);
+
+					ctxCall.bc.OptimizeLocally(tempVariableOffsets);
+					byteCode.AddCode(&ctxCall.bc);
+
+#else
 					asCByteCode tmpBC(engine);
 					tmpBC.InstrSHORT(asBC_PSF, 0);
 					tmpBC.Instr(asBC_RDSPtr);
+					if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+						tmpBC.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 					tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
 					tmpBC.OptimizeLocally(tempVariableOffsets);
 					byteCode.AddCode(&tmpBC);
+#endif
 				}
 				else
 					Error(TXT_BASE_DOESNT_HAVE_DEF_CONSTR, blockBegin);
@@ -874,6 +910,8 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 						asCByteCode tmpBC(engine);
 						tmpBC.InstrSHORT(asBC_PSF, 0);
 						tmpBC.Instr(asBC_RDSPtr);
+							// if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+								// tmpBC.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 						tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
 						tmpBC.OptimizeLocally(tempVariableOffsets);
 						byteCode.AddCode(&tmpBC);
@@ -7098,6 +7136,11 @@ bool asCCompiler::CompileRefCast(asCExprContext *ctx, const asCDataType &to, boo
 	// then check if the desired type is part of the hierarchy
 	if( !conversionDone && (ctx->type.dataType.GetTypeInfo()->flags & asOBJ_SCRIPT_OBJECT) )
 	{
+		// Hierarchy-based implicit cast only works for script-to-script.
+		// For script-to-app, opImplCast must be implemented on the class.
+		if (!(to.GetTypeInfo()->flags & asOBJ_SCRIPT_OBJECT))
+			return false;
+
 		// We need it to be a reference
 		if( !ctx->type.dataType.IsReference() )
 		{
@@ -15401,7 +15444,7 @@ int asCCompiler::MakeFunctionCall(asCExprContext *ctx, int funcId, asCObjectType
 
 	MoveArgsToStack(funcId, &ctx->bc, args, objectType ? true : false);
 
-	PerformFunctionCall(funcId, ctx, false, &args, 0, useVariable, stackOffset, funcPtrVar);
+	PerformFunctionCall(funcId, ctx, false, &args, objectType, useVariable, stackOffset, funcPtrVar);
 	
 	return 0;
 }
@@ -17430,6 +17473,8 @@ void asCCompiler::PerformFunctionCall(int funcId, asCExprContext *ctx, bool isCo
 			ctx->bc.Call(asBC_CALL    , descr->id, argSize);
 		else if( descr->funcType == asFUNC_SYSTEM )
 		{
+			if (objType->derivedFrom && !(objType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+				ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 			// Check if we can use the faster asBC_Thiscall1 instruction, i.e. one of
 			//    type &obj::func(int)
 			//    type &obj::func(uint)
