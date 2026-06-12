@@ -3422,13 +3422,6 @@ void asCBuilder::DetermineTypeRelations()
 							{
 								// Set the base class
 								CastToObjectType(decl->typeInfo)->derivedFrom = objType;
-								// If base class is C++ binding, copy flags that are relevant for the derived class
-								if (!(objType->flags & asOBJ_SCRIPT_OBJECT))
-								{
-									// CastToObjectType(decl->typeInfo)->flags = objType->flags | asOBJ_SCRIPT_OBJECT;
-									// Temporary set destruct behavior
-									// CastToObjectType(decl->typeInfo)->beh.destruct = objType->beh.destruct;
-								}
 								objType->AddRefInternal();
 							}
 						}
