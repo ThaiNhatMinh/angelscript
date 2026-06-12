@@ -169,7 +169,22 @@ int asCCompiler::CompileDefaultCopyConstructor(asCBuilder* in_builder, asCScript
 			asCExprContext ctx(engine);
 
 			asCScriptFunction* copyfunc = engine->scriptFunctions[outFunc->objectType->derivedFrom->beh.copyconstruct];
-			if (copyfunc->parameterTypes[0].IsObjectHandle())
+			if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+			{
+				// Call the copy constructor of non-script objects
+				// The base class is a registered (non-script) type, so its copy constructor
+				// is a system function. The base class sub-object starts after the
+				// asCScriptObject header in the derived object's memory.
+				CompileVariableAccess("other", "", &ctx, 0);
+				ctx.bc.Instr(asBC_RDSPtr);
+				ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+				CompileVariableAccess("this", "", &ctx, 0);
+				ctx.bc.Instr(asBC_RDSPtr);
+				ctx.bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+				ctx.bc.Call(asBC_CALLSYS, outFunc->objectType->derivedFrom->beh.copyconstruct, 2 * AS_PTR_SIZE);
+				ctx.bc.OptimizeLocally(tempVariableOffsets);
+			}
+			else if (copyfunc->parameterTypes[0].IsObjectHandle())
 			{
 				int varOffset = AllocateVariable(copyfunc->parameterTypes[0], true);
 				CompileVariableAccess("other", "", &ctx, 0);
