@@ -7998,6 +7998,23 @@ asUINT asCCompiler::ImplicitConvObjectRef(asCExprContext *ctx, const asCDataType
 		// If the to type is a class and the from type derives from it, then we can convert it immediately
 		else if( ctx->type.dataType.GetTypeInfo()->DerivesFrom(to.GetTypeInfo()) )
 		{
+			if (generateCode)
+			{
+				asCObjectType *fromType = CastToObjectType(ctx->type.dataType.GetTypeInfo());
+				asCObjectType *toType = CastToObjectType(to.GetTypeInfo());
+				// When casting from a script class to a registered (non-script) base class,
+				// the base class sub-object starts after the asCScriptObject header, so we
+				// need to adjust the pointer to point to the base class sub-object
+				if (fromType && toType &&
+					(fromType->flags & asOBJ_SCRIPT_OBJECT) &&
+					!(toType->flags & asOBJ_SCRIPT_OBJECT) &&
+					!ctx->type.IsNullConstant())
+				{
+					if (ctx->type.dataType.IsReference())
+						Dereference(ctx, true);
+					ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+				}
+			}
 			ctx->type.dataType.SetTypeInfo(to.GetTypeInfo());
 			return asCC_REF_CONV;
 		}

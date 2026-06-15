@@ -144,23 +144,26 @@ bool Test()
 
 		r = ExecuteString(engine,
 			"Copyable param; param.x = 123;                                \n"
+			"Copyable param2; param2.y = 123;                                \n"
 			"Copyable a;                                \n"
 			"a.Dummy(param);                                \n"
-			//"a.x = 1.0f;                                \n"
-			//"a.y = 2.0f;                                \n"
-			//"a.z = 3.0f;                                \n"
-			//"a.tag = 99;                                \n"
-			//// Explicit copy construction
-			//"Copyable b = a;                            \n"
-			//"assert(b.x == 1.0f);                       \n"
-			//"assert(b.y == 2.0f);                       \n"
-			//"assert(b.z == 3.0f);                       \n"
-			//"assert(b.tag == 99);                       \n"
-			// Pass by value (triggers copy constructor)
-			//"CheckCopy(a);                               \n"
-			//// Verify original unchanged
-			//"assert(a.x == 1.0f);                       \n"
-			//"assert(a.tag == 99);                       \n"
+			"param.Dummy(param2);                                \n"
+			"param2.Dummy(a);                                \n"
+			"a.x = 1.0f;                                \n"
+			"a.y = 2.0f;                                \n"
+			"a.z = 3.0f;                                \n"
+			"a.tag = 99;                                \n"
+			// Explicit copy construction
+			"Copyable b = a;                            \n"
+			"assert(b.x == 1.0f);                       \n"
+			"assert(b.y == 2.0f);                       \n"
+			"assert(b.z == 3.0f);                       \n"
+			"assert(b.tag == 99);                       \n"
+			 //Pass by value (triggers copy constructor)
+			"CheckCopy(a);                               \n"
+			// Verify original unchanged
+			"assert(a.x == 1.0f);                       \n"
+			"assert(a.tag == 99);                       \n"
 			, mod);
 		if (r != asEXECUTION_FINISHED)
 		{
