@@ -111,6 +111,92 @@ bool Test()
 	int  r;
 	CBufferedOutStream bout;
 
+	// ------------------------------------------------------------------
+	// Test 8: Value type - explicit copy constructor with super(other)
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		engine->RegisterObjectType("Vec3", sizeof(Vec3), asOBJ_VALUE | asGetTypeTraits<Vec3>());
+		engine->RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x));
+		engine->RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y));
+		engine->RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z));
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f()", asFUNCTION(Vec3_DefaultCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(float,float,float)", asFUNCTION(Vec3_Ctor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(const Vec3 &in)", asFUNCTION(Vec3_CopyCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(Vec3_DefaultDtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectMethod("Vec3", "float Length() const", asMETHOD(Vec3, Length), asCALL_THISCALL);
+		engine->RegisterObjectMethod("Vec3", "void Dummy(const Vec3 &in) const", asFUNCTION(Vec3_Dymmy), asCALL_CDECL_OBJLAST);
+
+		asIScriptModule* mod = engine->GetModule("test_copy_ctor", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		// Derived class with explicit copy constructor calling super(other)
+		mod->AddScriptSection("test_copy_ctor",
+			"class Copyable : Vec3 {                   \n"
+			"  int tag;                                 \n"
+			"  Copyable() {                             \n"
+			//"    super();                               \n"
+			"    tag = 0;                               \n"
+			"  }                                        \n"
+			"  Copyable(const Copyable &other) {        \n"
+			"    super(other);                          \n"
+			"    tag = other.tag;                       \n"
+			"  }                                        \n"
+			"}                                          \n"
+			"void CheckCopy(Copyable c) {               \n"
+			"  assert(c.x == 1.0f);                     \n"
+			"  assert(c.y == 2.0f);                     \n"
+			"  assert(c.z == 3.0f);                     \n"
+			"  assert(c.tag == 99);                     \n"
+			"}                                          \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+			return fail;
+		}
+
+		r = ExecuteString(engine,
+			"Copyable param; param.x = 123;                                \n"
+			"Copyable param2; param2.y = 123;                                \n"
+			"Copyable a;                                \n"
+			"a.Dummy(param);                                \n"
+			"param.Dummy(param2);                                \n"
+			"param2.Dummy(a);                                \n"
+			"a.x = 1.0f;                                \n"
+			"a.y = 2.0f;                                \n"
+			"a.z = 3.0f;                                \n"
+			"a.tag = 99;                                \n"
+			// Explicit copy construction
+			"Copyable b = a;                            \n"
+			"assert(b.x == 1.0f);                       \n"
+			"assert(b.y == 2.0f);                       \n"
+			"assert(b.z == 3.0f);                       \n"
+			"assert(b.tag == 99);                       \n"
+			//Pass by value (triggers copy constructor)
+			"CheckCopy(a);                               \n"
+			// Verify original unchanged
+			"assert(a.x == 1.0f);                       \n"
+			"assert(a.tag == 99);                       \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Copyable test exception");
+			TEST_FAILED;
+		}
+
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+	}
+
+	return true;
 
 	// ------------------------------------------------------------------
 	// Test 14: Value type — calling C++ function with derived class as base type
@@ -460,91 +546,6 @@ bool Test()
 			PRINTF("Expected at least 2 Vec3 destructor calls, got %d\n", Vec3::dtorCount);
 			TEST_FAILED;
 		}
-	}
-
-	// ------------------------------------------------------------------
-	// Test 8: Value type - explicit copy constructor with super(other)
-	// ------------------------------------------------------------------
-	{
-		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
-		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
-		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
-
-		engine->RegisterObjectType("Vec3", sizeof(Vec3), asOBJ_VALUE | asGetTypeTraits<Vec3>());
-		engine->RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x));
-		engine->RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y));
-		engine->RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z));
-		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f()", asFUNCTION(Vec3_DefaultCtor), asCALL_CDECL_OBJLAST);
-		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(float,float,float)", asFUNCTION(Vec3_Ctor), asCALL_CDECL_OBJLAST);
-		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(const Vec3 &in)", asFUNCTION(Vec3_CopyCtor), asCALL_CDECL_OBJLAST);
-		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(Vec3_DefaultDtor), asCALL_CDECL_OBJLAST);
-		engine->RegisterObjectMethod("Vec3", "float Length() const", asMETHOD(Vec3, Length), asCALL_THISCALL);
-		engine->RegisterObjectMethod("Vec3", "void Dummy(const Vec3 &in) const", asFUNCTION(Vec3_Dymmy), asCALL_CDECL_OBJLAST);
-
-		asIScriptModule* mod = engine->GetModule("test_copy_ctor", asGM_ALWAYS_CREATE);
-		bout.buffer = "";
-
-		// Derived class with explicit copy constructor calling super(other)
-		mod->AddScriptSection("test_copy_ctor",
-			"class Copyable : Vec3 {                   \n"
-			"  int tag;                                 \n"
-			"  Copyable() {                             \n"
-			//"    super();                               \n"
-			"    tag = 0;                               \n"
-			"  }                                        \n"
-			"  Copyable(const Copyable &other) {        \n"
-			"    super(other);                          \n"
-			"    tag = other.tag;                       \n"
-			"  }                                        \n"
-			"}                                          \n"
-			"void CheckCopy(Copyable c) {               \n"
-			"  assert(c.x == 1.0f);                     \n"
-			"  assert(c.y == 2.0f);                     \n"
-			"  assert(c.z == 3.0f);                     \n"
-			"  assert(c.tag == 99);                     \n"
-			"}                                          \n"
-		);
-
-		r = mod->Build();
-		if (r < 0)
-		{
-			PRINTF("Build failed: %s\n", bout.buffer.c_str());
-			TEST_FAILED;
-			return fail;
-		}
-
-		r = ExecuteString(engine,
-			"Copyable param; param.x = 123;                                \n"
-			"Copyable param2; param2.y = 123;                                \n"
-			"Copyable a;                                \n"
-			"a.Dummy(param);                                \n"
-			"param.Dummy(param2);                                \n"
-			"param2.Dummy(a);                                \n"
-			"a.x = 1.0f;                                \n"
-			"a.y = 2.0f;                                \n"
-			"a.z = 3.0f;                                \n"
-			"a.tag = 99;                                \n"
-			// Explicit copy construction
-			"Copyable b = a;                            \n"
-			"assert(b.x == 1.0f);                       \n"
-			"assert(b.y == 2.0f);                       \n"
-			"assert(b.z == 3.0f);                       \n"
-			"assert(b.tag == 99);                       \n"
-			 //Pass by value (triggers copy constructor)
-			"CheckCopy(a);                               \n"
-			// Verify original unchanged
-			"assert(a.x == 1.0f);                       \n"
-			"assert(a.tag == 99);                       \n"
-			, mod);
-		if (r != asEXECUTION_FINISHED)
-		{
-			if (r == asEXECUTION_EXCEPTION)
-				PRINTF("Exception: %s\n", "Copyable test exception");
-			TEST_FAILED;
-		}
-
-		engine->GarbageCollect();
-		engine->ShutDownAndRelease();
 	}
 
 	// ------------------------------------------------------------------
