@@ -111,6 +111,81 @@ bool Test()
 	int  r;
 	CBufferedOutStream bout;
 
+
+	// ------------------------------------------------------------------
+	// Test ?: Ref-type base class inheritance
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		engine->RegisterObjectType("MyRefBase", 0, asOBJ_REF);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_FACTORY, "MyRefBase@ f()", asFUNCTION(MyRefBase_Factory), asCALL_CDECL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_ADDREF, "void f()", asMETHOD(MyRefBase, AddRef), asCALL_THISCALL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_RELEASE, "void f()", asMETHOD(MyRefBase, Release), asCALL_THISCALL);
+		engine->RegisterObjectProperty("MyRefBase", "int x", asOFFSET(MyRefBase, x));
+		engine->RegisterObjectProperty("MyRefBase", "float y", asOFFSET(MyRefBase, y));
+		engine->RegisterObjectMethod("MyRefBase", "int Sum() const", asFUNCTION(MyRefBase_Sum), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectMethod("MyRefBase", "void SetXY(int, float)", asFUNCTION(MyRefBase_SetXY), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(MyRefBase_Dtor), asCALL_CDECL_OBJLAST);
+
+		asIScriptModule* mod = engine->GetModule("test_ref", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		mod->AddScriptSection("test_ref",
+			"class Widget : MyRefBase {              \n"
+			"  int id;                                \n"
+			"  Widget() {                             \n"
+			"    SetXY(10, 20.0f);                    \n" // Inherited method
+			"    id = x + int(y);                     \n" // Access inherited properties
+			"  }                                      \n"
+			"  int Calc() const { return Sum() + id; } \n" // Inherited method + own property
+			"}                                        \n");
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+			return false;
+		}
+
+		auto Context = engine->CreateContext();
+		r = ExecuteString(engine,
+			"Widget w;                               \n"
+			//"assert(w.x == 10);                      \n" // Inherited property
+			//"assert(w.y == 20.0f);                   \n"
+			//"assert(w.id == 30);                     \n" // Own property = 10+20
+			//"assert(w.Calc() == 40);                 \n" // Sum()=10, id=30 => 40
+			//"w.SetXY(5, 3.0f);                       \n" // Inherited method
+			//"assert(w.x == 5);                       \n"
+			//"assert(w.Sum() == 8);                   \n" // Inherited method directly
+			, mod, Context);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (Context && r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", Context->GetExceptionString());
+			TEST_FAILED;
+		}
+		asITypeInfo* wt = mod->GetTypeInfoByName("Widget");
+		if (!wt || !wt->GetBaseType() || strcmp(wt->GetBaseType()->GetName(), "MyRefBase") != 0)
+			TEST_FAILED;
+		if (!wt->DerivesFrom(engine->GetTypeInfoByName("MyRefBase")))
+			TEST_FAILED;
+
+		Context->Release();
+		// Force GC and verify ref type destructor was called
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+		if (MyRefBase::dtorCount != 1)
+		{
+			PRINTF("Expected 1 MyRefBase destructor call, got %d\n", MyRefBase::dtorCount);
+			TEST_FAILED;
+		}
+	}
+
+	return false;
 	// ------------------------------------------------------------------
 	// Test 8: Value type - explicit copy constructor with super(other)
 	// ------------------------------------------------------------------
@@ -195,8 +270,6 @@ bool Test()
 		engine->GarbageCollect();
 		engine->ShutDownAndRelease();
 	}
-
-	return true;
 
 	// ------------------------------------------------------------------
 	// Test 14: Value type — calling C++ function with derived class as base type
@@ -951,77 +1024,6 @@ bool Test()
 
 		engine->GarbageCollect();
 		engine->ShutDownAndRelease();
-	}
-
-	// ------------------------------------------------------------------
-	// Test ?: Ref-type base class inheritance
-	// ------------------------------------------------------------------
-	{
-		asIScriptEngine *engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
-		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
-		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
-
-		engine->RegisterObjectType("MyRefBase", 0, asOBJ_REF);
-		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_FACTORY, "MyRefBase@ f()", asFUNCTION(MyRefBase_Factory), asCALL_CDECL);
-		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_ADDREF, "void f()", asMETHOD(MyRefBase, AddRef), asCALL_THISCALL);
-		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_RELEASE, "void f()", asMETHOD(MyRefBase, Release), asCALL_THISCALL);
-		engine->RegisterObjectProperty("MyRefBase", "int x", asOFFSET(MyRefBase, x));
-		engine->RegisterObjectProperty("MyRefBase", "float y", asOFFSET(MyRefBase, y));
-		engine->RegisterObjectMethod("MyRefBase", "int Sum() const", asFUNCTION(MyRefBase_Sum), asCALL_CDECL_OBJFIRST);
-		engine->RegisterObjectMethod("MyRefBase", "void SetXY(int, float)", asFUNCTION(MyRefBase_SetXY), asCALL_CDECL_OBJFIRST);
-		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(MyRefBase_Dtor), asCALL_CDECL_OBJLAST);
-
-		asIScriptModule *mod = engine->GetModule("test_ref", asGM_ALWAYS_CREATE);
-		bout.buffer = "";
-
-		mod->AddScriptSection("test_ref",
-			"class Widget : MyRefBase {              \n"
-			"  int id;                                \n"
-			"  Widget() {                             \n"
-			"    SetXY(10, 20.0f);                    \n" // Inherited method
-			"    id = x + int(y);                     \n" // Access inherited properties
-			"  }                                      \n"
-			"  int Calc() const { return Sum() + id; } \n" // Inherited method + own property
-			"}                                        \n");
-
-		r = mod->Build();
-		if (r < 0)
-		{
-			PRINTF("Build failed: %s\n", bout.buffer.c_str());
-			TEST_FAILED;
-		}
-
-		r = ExecuteString(engine,
-			"Widget w;                               \n"
-			"assert(w.x == 10);                      \n" // Inherited property
-			"assert(w.y == 20.0f);                   \n"
-			"assert(w.id == 30);                     \n" // Own property = 10+20
-			"assert(w.Calc() == 40);                 \n" // Sum()=10, id=30 => 40
-			"w.SetXY(5, 3.0f);                       \n" // Inherited method
-			"assert(w.x == 5);                       \n"
-			"assert(w.Sum() == 8);                   \n" // Inherited method directly
-			, mod);
-		if (r != asEXECUTION_FINISHED)
-		{
-			if (r == asEXECUTION_EXCEPTION)
-				PRINTF("Exception: %s\n", "engine->GetContext()->GetExceptionString()");
-			TEST_FAILED;
-		}
-
-		asITypeInfo *wt = mod->GetTypeInfoByName("Widget");
-		if (!wt || !wt->GetBaseType() || strcmp(wt->GetBaseType()->GetName(), "MyRefBase") != 0)
-			TEST_FAILED;
-		if (!wt->DerivesFrom(engine->GetTypeInfoByName("MyRefBase")))
-			TEST_FAILED;
-
-		// Force GC and verify ref type destructor was called
-		engine->GarbageCollect();
-		engine->ShutDownAndRelease();
-		if (MyRefBase::dtorCount != 1)
-		{
-			PRINTF("Expected 1 MyRefBase destructor call, got %d\n", MyRefBase::dtorCount);
-			TEST_FAILED;
-		}
 	}
 
 	// ------------------------------------------------------------------

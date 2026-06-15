@@ -67,6 +67,7 @@
 #define TXT_CANNOT_IMPLEMENT_SELF                  "Can't implement itself, or another interface that implements this interface"
 #define TXT_CANNOT_IMPLICITLY_CALL_EXPLICIT_COPY_CONSTR   "Can't implicitly call explicit copy constructor"
 #define TXT_CANNOT_INHERIT_FROM_s_FINAL            "Can't inherit from class '%s' marked as final"
+#define TXT_CANNOT_INHERIT_FROM_s_NO_FACTORY	   "Can't inherit from class '%s' that doesn't have a default factory"
 #define TXT_CANNOT_INHERIT_FROM_MULTIPLE_CLASSES   "Can't inherit from multiple classes"
 #define TXT_CANNOT_INHERIT_FROM_SELF               "Can't inherit from itself, or another class that inherits from this class"
 #define TXT_CANNOT_INIT_MEMBERS_IN_LOOPS           "Can't initialize the members in loops"

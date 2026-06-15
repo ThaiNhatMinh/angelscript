@@ -252,7 +252,7 @@ protected:
 	asCObjectProperty *GetObjectProperty(asCDataType &obj, const char *prop);
 	asCScriptFunction *GetFunctionDescription(int funcId);
 	void               GetFunctionDescriptions(const char *name, asCArray<int> &funcs, asSNameSpace *ns);
-	void               GetObjectMethodDescriptions(const char *name, asCObjectType *objectType, asCArray<int> &methods, bool objIsConst, const asCString &scope = "", asCScriptNode *errNode = 0, asCScriptCode *script = 0);
+	void               GetObjectMethodDescriptions(const char *name, asCObjectType *objectType, asCArray<int> &methods, bool objIsConst, const asCString &scope = "", asCScriptNode *errNode = 0, asCScriptCode *script = 0, int *outBaseOffset = 0);
 	void               EvaluateTemplateInstances(asUINT startIdx, bool keepSilent);
 	void               CleanupEnumValues();
 

@@ -156,6 +156,15 @@ int asCCompiler::CompileDefaultCopyConstructor(asCBuilder* in_builder, asCScript
 	// in case the member initialization refers to undefined symbols.
 	AddVariableScope();
 
+
+	// Precompute the base sub-object offset for C++ base class inheritance
+	short baseOffset = 0;
+	if (outFunc->objectType->derivedFrom && !(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+	{
+		asCObjectProperty* bp = outFunc->objectType->GetHiddenBaseProperty();
+		baseOffset = (short)(bp ? bp->byteOffset : sizeof(asCScriptObject));
+	}
+
 	// Initialize the class members that are not inherited from a base class first. This will allow the base 
 	// class' copy constructor to access these members without worry they will be uninitialized. This can
 	// happen if the base class' copy constructor calls a method that is overridden by the derived class.
@@ -314,8 +323,12 @@ int asCCompiler::CompileDefaultConstructor(asCBuilder *in_builder, asCScriptCode
 		// Call the base class' default constructor
 		byteCode.InstrSHORT(asBC_PSF, 0);
 		byteCode.Instr(asBC_RDSPtr);
-		// if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
-			// byteCode.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+		if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+		{
+			asCObjectProperty* baseProp = outFunc->objectType->GetHiddenBaseProperty();
+			short baseOffset = (short)(baseProp ? baseProp->byteOffset : sizeof(asCScriptObject));
+			byteCode.InstrSHORT_DW(asBC_ADDSi, baseOffset, 0);
+		}
 		byteCode.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
 	}
 
@@ -609,6 +622,11 @@ void asCCompiler::CompileMemberInitializationCopy(asCByteCode* bc)
 	{
 		asCObjectProperty* prop = outFunc->objectType->properties[n];
 
+		// Skip the private $base property � it represents the C++ base sub-object
+		// and is handled by the base class constructor
+		if (prop->name == "$base" && prop->isPrivate)
+			continue;
+
 		// Check if the property is inherited
 		asCScriptNode* declNode = 0;
 		for (asUINT m = 0; m < m_classDecl->propInits.GetLength(); m++)
@@ -633,7 +651,26 @@ void asCCompiler::CompileMemberInitializationCopy(asCByteCode* bc)
 
 			// Code is similar to CompileExprPostOp for the ttDot operator
 			// TODO: cleanup: Make a reusable method for both CompileExprPostOp with ttDot and here
-			ctx.bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(outFunc->objectType, false)));
+			{
+				int totalOffset = prop->byteOffset;
+				asCObjectType* accessType = outFunc->objectType;
+				bool isFromBase = true;
+				for (asUINT i = 0; i < accessType->properties.GetLength(); i++)
+				{
+					if (accessType->properties[i] == prop)
+					{
+						isFromBase = false;
+						break;
+					}
+				}
+				if (isFromBase)
+				{
+					asCObjectProperty* bp = accessType->GetHiddenBaseProperty();
+					if (bp)
+						totalOffset = bp->byteOffset + prop->byteOffset;
+				}
+				ctx.bc.InstrSHORT_DW(asBC_ADDSi, (short)totalOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(outFunc->objectType, false)));
+			}
 			if (prop->type.IsReference())
 				ctx.bc.Instr(asBC_RDSPtr);
 
@@ -682,6 +719,10 @@ void asCCompiler::CompileMemberInitialization(asCByteCode *bc, bool onlyDefaults
 	{
 		asCObjectProperty *prop = outFunc->objectType->properties[n];
 		
+		// Skip the private $base property — it represents the C++ base sub-object
+		// and is handled by the base class constructor
+		if (prop->name == "$base" && prop->isPrivate)
+			continue;
 		// Don't compile additional member initialization if it has already been explicitly initialized in the body
 		if (engine->ep.memberInitMode == 1 && m_initializedProperties.IndexOf(prop) >= 0)
 			continue;
@@ -854,21 +895,6 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 				if (outFunc->objectType->derivedFrom->beh.construct)
 				{
 					// Call base class' constructor
-#if 1
-
-					// Call the constructor as a normal function
-					/*asCByteCode tmpBC(engine);
-					tmpBC.InstrSHORT(asBC_PSF, 0);
-
-					asCExprContext ctxCall(engine);
-					PerformFunctionCall(outFunc->objectType->derivedFrom->beh.construct, &ctxCall, false, 0, outFunc->objectType);
-					tmpBC.AddCode(&ctxCall.bc);
-					tmpBC.OptimizeLocally(tempVariableOffsets);
-					byteCode.AddCode(&tmpBC);*/
-
-					//asCByteCode tmpBC(engine);
-					
-
 					asCExprContext ctxCall(engine);
 
 					// The object pointer is located at stack position 0
@@ -884,19 +910,8 @@ int asCCompiler::CompileFunction(asCBuilder *in_builder, asCScriptCode *in_scrip
 
 					ctxCall.bc.OptimizeLocally(tempVariableOffsets);
 					byteCode.AddCode(&ctxCall.bc);
-
-#else
-					asCByteCode tmpBC(engine);
-					tmpBC.InstrSHORT(asBC_PSF, 0);
-					tmpBC.Instr(asBC_RDSPtr);
-					if (!(outFunc->objectType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
-						tmpBC.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
-					tmpBC.Call(asBC_CALL, outFunc->objectType->derivedFrom->beh.construct, AS_PTR_SIZE);
-					tmpBC.OptimizeLocally(tempVariableOffsets);
-					byteCode.AddCode(&tmpBC);
-#endif
 				}
-				else
+				else if (!(outFunc->objectType->derivedFrom->flags & (asOBJ_SCRIPT_OBJECT | asOBJ_REF)))
 					Error(TXT_BASE_DOESNT_HAVE_DEF_CONSTR, blockBegin);
 			}
 
@@ -10683,6 +10698,25 @@ asCCompiler::SYMBOLTYPE asCCompiler::SymbolLookupMember(const asCString &name, a
 		}
 	}
 
+	// If not found as a direct method, check the C++ base class through the $base private property
+	if (ot->derivedFrom && !(ot->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+	{
+		asCObjectProperty *baseProp = ot->GetHiddenBaseProperty();
+		if (baseProp)
+		{
+			asCObjectType *baseType = CastToObjectType(baseProp->type.GetTypeInfo());
+			for (asUINT n = 0; n < baseType->methods.GetLength(); n++)
+			{
+				asCScriptFunction *f = engine->scriptFunctions[baseType->methods[n]];
+				if (f->name == name &&
+					(builder->module->m_accessMask & f->accessMask))
+				{
+					outResult->type.dataType.SetTypeInfo(objType);
+					return SL_CLASSMETHOD;
+				}
+			}
+		}
+	}
 	// If it is not a method, then it can still be a child type
 	for (asUINT n = 0; n < ot->childFuncDefs.GetLength(); n++)
 	{
@@ -11315,8 +11349,28 @@ int asCCompiler::CompileVariableAccess(const asCString &name, const asCString &s
 
 			// TODO: This is the same as what is in CompileExpressionPostOp
 			// Put the offset on the stack
-			ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(dt));
-
+			// If the property was resolved through the $base private property (C++ base class),
+			// combine the base sub-object offset with the property's relative offset
+			int totalOffset = prop->byteOffset;
+			{
+				asCObjectType *accessType = CastToObjectType(dt.GetTypeInfo());
+				bool isFromBase = true;
+				for (asUINT i = 0; i < accessType->properties.GetLength(); i++)
+				{
+					if (accessType->properties[i] == prop)
+					{
+						isFromBase = false;
+						break;
+					}
+				}
+				if (isFromBase)
+				{
+					asCObjectProperty *baseProp = accessType->GetHiddenBaseProperty();
+					if (baseProp)
+						totalOffset = baseProp->byteOffset + prop->byteOffset;
+				}
+			}
+			ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)totalOffset, engine->GetTypeIdFromDataType(dt));
 			if (prop->type.IsReference())
 				ctx->bc.Instr(asBC_RDSPtr);
 
@@ -12991,6 +13045,13 @@ int asCCompiler::CompileFunctionCall(asCScriptNode *node, asCExprContext *ctx, a
 
 			// The object pointer is located at stack position 0
 			ctx->bc.InstrSHORT(asBC_PSF, 0);
+			// If the method is from a C++ base class, adjust this pointer to the base sub-object
+
+			asCObjectProperty* baseProp = objectType->GetHiddenBaseProperty();
+			if (baseProp)
+			{
+				ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)baseProp->byteOffset, 0);
+			}
 			ctx->type.SetVariable(dt, 0, false);
 			ctx->type.dataType.MakeReference(true);
 
@@ -14433,7 +14494,27 @@ int asCCompiler::CompileExpressionPostOp(asCScriptNode *node, asCExprContext *ct
 
 					// Put the offset on the stack
 					// This must always be done even if the offset is 0 so the type info is stored
-					ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(ctx->type.dataType.GetTypeInfo(), false)));
+					// If the property was resolved through the $base private property, combine the base offset
+					{
+						int totalOffset = prop->byteOffset;
+						asCObjectType *accessType = CastToObjectType(ctx->type.dataType.GetTypeInfo());
+						bool isFromBase = true;
+						for (asUINT i = 0; i < accessType->properties.GetLength(); i++)
+						{
+							if (accessType->properties[i] == prop)
+							{
+								isFromBase = false;
+								break;
+							}
+						}
+						if (isFromBase)
+						{
+							asCObjectProperty *baseProp = accessType->GetHiddenBaseProperty();
+							if (baseProp)
+								totalOffset = baseProp->byteOffset + prop->byteOffset;
+						}
+						ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)totalOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(ctx->type.dataType.GetTypeInfo(), false)));
+					}
 
 					if( prop->type.IsReference() )
 						ctx->bc.Instr(asBC_RDSPtr);

@@ -1232,6 +1232,16 @@ asCObjectProperty *asCBuilder::GetObjectProperty(asCDataType &obj, const char *p
 		}
 	}
 
+	// If the property was not found, search through the $base private property
+	// (used when a script class inherits from a C++ registered type)
+	asCObjectType *ot = CastToObjectType(obj.GetTypeInfo());
+	asCObjectProperty *baseProp = ot->GetHiddenBaseProperty();
+	if (baseProp)
+	{
+		asCDataType baseDt = baseProp->type;
+		return GetObjectProperty(baseDt, prop);
+	}
+
 	return 0;
 }
 #endif
@@ -3356,8 +3366,7 @@ void asCBuilder::DetermineTypeRelations()
 				{
 					AddInterfaceFromMixinToClass(decl, node, mixin);
 				}
-				else if ((objType->flags & asOBJ_NOINHERIT) ||
-					(!(objType->flags & asOBJ_SCRIPT_OBJECT) && objType->size == 0))
+				else if ((objType->flags & asOBJ_NOINHERIT))
 				{
 					// Either the class has been declared as 'final', or it is a
 					// non-script type with size 0 (interfaces/opaque handles).
@@ -3366,7 +3375,7 @@ void asCBuilder::DetermineTypeRelations()
 					str.Format(TXT_CANNOT_INHERIT_FROM_s_FINAL, objType->name.AddressOf());
 					WriteError(str, file, node);
 				}
-				else if (objType->size != 0)
+				else if (objType->size != 0 || objType->beh.factory != 0)
 				{
 					// The class inherits from another script class
 					if (!decl->isExistingShared && CastToObjectType(decl->typeInfo)->derivedFrom != 0)
@@ -3426,6 +3435,13 @@ void asCBuilder::DetermineTypeRelations()
 							}
 						}
 					}
+				}
+				else if (objType->beh.factory == 0)
+				{
+					asCString str;
+					str.Format(TXT_CANNOT_INHERIT_FROM_s_NO_FACTORY, objType->name.AddressOf());
+					WriteError(str, file, node);
+					break;
 				}
 				else
 				{
@@ -3509,18 +3525,56 @@ void asCBuilder::CompileClasses(asUINT numTempl)
 			// TODO: Need to check for name conflict with new class methods
 
 			// Copy properties from base class to derived class
-			for( asUINT p = 0; p < baseType->properties.GetLength(); p++ )
+			if (isScriptBase)
 			{
-				asCObjectProperty *prop = AddPropertyToClass(decl, baseType->properties[p]->name, baseType->properties[p]->type, baseType->properties[p]->isPrivate, baseType->properties[p]->isProtected, true);
+				for( asUINT p = 0; p < baseType->properties.GetLength(); p++ )
+				{
+					asCObjectProperty *prop = AddPropertyToClass(decl, baseType->properties[p]->name, baseType->properties[p]->type, baseType->properties[p]->isPrivate, baseType->properties[p]->isProtected, true);
 
-				// The properties must maintain the correct offset (relative to their headers)
-				if (isScriptBase)
+					// The properties must maintain the correct offset
 					asASSERT(prop && prop->byteOffset == baseType->properties[p]->byteOffset);
-				else
-					asASSERT(prop && prop->byteOffset == baseType->properties[p]->byteOffset + sizeof(asCScriptObject));
-				UNUSED_VAR(prop);
+					UNUSED_VAR(prop);
+				}
 			}
+			else if (baseType->flags & asOBJ_REF)
+			{
+				// For C++ ref types, add a single private $base property that represents
+				// the embedded C++ sub-object. This avoids copying all base properties
+				// and provides a clean handle to the base for the compiler and runtime.
+				asCObjectProperty *baseProp = asNEW(asCObjectProperty);
+				if (baseProp)
+				{
+					baseProp->name        = "$base";
+					baseProp->type        = asCDataType::CreateType(baseType, false);
+					baseProp->type.MakeReference(true);
+					baseProp->byteOffset  = sizeof(asCScriptObject);
+					baseProp->isPrivate   = true;
+					baseProp->isProtected = false;
+					baseProp->isInherited = true;
+					baseProp->accessMask  = 0xFFFFFFFF;
 
+					ot->properties.PushLast(baseProp);
+
+					// Adjust the object size so that derived properties start after the C++ base sub-object
+					ot->size = sizeof(asCScriptObject) + baseType->size;
+
+					// Add reference for the base type held by this property
+					asCConfigGroup *group = engine->FindConfigGroupForTypeInfo(baseProp->type.GetTypeInfo());
+					if (group) group->AddRef();
+					asCTypeInfo *type = baseProp->type.GetTypeInfo();
+					if (type) type->AddRefInternal();
+				}
+			}
+			else
+			{
+				// For C++ value types, keep the existing property-copying behavior
+				for( asUINT p = 0; p < baseType->properties.GetLength(); p++ )
+				{
+					asCObjectProperty *prop = AddPropertyToClass(decl, baseType->properties[p]->name, baseType->properties[p]->type, baseType->properties[p]->isPrivate, baseType->properties[p]->isProtected, true);
+					asASSERT(prop && prop->byteOffset == baseType->properties[p]->byteOffset + sizeof(asCScriptObject));
+					UNUSED_VAR(prop);
+				}
+			}
 			// Copy methods from base class to derived class
 			if (isScriptBase)
 			{
@@ -5955,7 +6009,7 @@ void asCBuilder::GetFunctionDescriptions(const char *name, asCArray<int> &funcs,
 }
 
 // scope is only informed when looking for a base class' method
-void asCBuilder::GetObjectMethodDescriptions(const char *name, asCObjectType *objectType, asCArray<int> &methods, bool objIsConst, const asCString &scope, asCScriptNode *errNode, asCScriptCode *script)
+void asCBuilder::GetObjectMethodDescriptions(const char *name, asCObjectType *objectType, asCArray<int> &methods, bool objIsConst, const asCString &scope, asCScriptNode *errNode, asCScriptCode *script, int *outBaseOffset)
 {
 	asASSERT(objectType);
 
@@ -6020,6 +6074,20 @@ void asCBuilder::GetObjectMethodDescriptions(const char *name, asCObjectType *ob
 					f = objectType->virtualFunctionTable[f->vfTableIdx];
 				methods.PushLast(f->id);
 			}
+		}
+	}
+
+	// If no methods found and no scope specified, try the base class through the $base private property
+	if (methods.GetLength() == 0 && scope == "" && objectType->derivedFrom)
+	{
+		asCObjectProperty *baseProp = objectType->GetHiddenBaseProperty();
+		if (baseProp)
+		{
+			if (outBaseOffset)
+				*outBaseOffset = baseProp->byteOffset;
+
+			asCObjectType *baseType = CastToObjectType(baseProp->type.GetTypeInfo());
+			GetObjectMethodDescriptions(name, baseType, methods, objIsConst, scope, errNode, script, outBaseOffset);
 		}
 	}
 }
