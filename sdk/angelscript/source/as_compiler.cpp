@@ -8006,7 +8006,7 @@ asUINT asCCompiler::ImplicitConvObjectRef(asCExprContext *ctx, const asCDataType
 				// the base class sub-object starts after the asCScriptObject header, so we
 				// need to adjust the pointer to point to the base class sub-object
 				if (fromType && toType &&
-					(fromType->flags & asOBJ_SCRIPT_OBJECT) && toType->DerivesFromNative() && !ctx->type.IsNullConstant())
+						(fromType->flags & asOBJ_SCRIPT_OBJECT) && !(toType->flags & asOBJ_SCRIPT_OBJECT) && !ctx->type.IsNullConstant())
 				{
 					if (ctx->type.dataType.IsReference())
 						Dereference(ctx, true);

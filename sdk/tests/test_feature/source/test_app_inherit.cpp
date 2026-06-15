@@ -36,7 +36,8 @@ struct Vec3
 	Vec3() : x(0), y(0), z(0) {}
 	Vec3(float _x, float _y, float _z) : x(_x), y(_y), z(_z) {}
 	~Vec3() { dtorCount++; }
-	float Length() const { return sqrtf(x*x + y*y + z*z); }
+	float Length() const { 
+		return sqrtf(x*x + y*y + z*z); }
 
 	float x, y, z;
 };
@@ -62,9 +63,30 @@ static void Vec3_DefaultDtor(Vec3* o)
 	o->~Vec3();
 }
 
+static float SumVec3(const Vec3 &v)
+{
+	return v.x + v.y + v.z;
+}
+
+static float SumVec3_Obj(Vec3 v)
+{
+	return v.x + v.y + v.z;
+}
+
 static void FloatValue(float f)
 {
 	f;
+}
+
+static void IntValue(int i)
+{
+	i;
+}
+
+static void IntValue2(int Left, int Right)
+{
+	Left;
+	Right;
 }
 
 // --- Final class (cannot be inherited) ---
@@ -90,6 +112,355 @@ bool Test()
 	CBufferedOutStream bout;
 
 
+	// ------------------------------------------------------------------
+	// Test 14: Value type — calling C++ function with derived class as base type
+	// Tests that a script class derived from a C++ value type can be passed
+	// to a C++ global function that expects the base type by reference.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		engine->RegisterObjectType("Vec3", sizeof(Vec3), asOBJ_VALUE | asGetTypeTraits<Vec3>());
+		engine->RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x));
+		engine->RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y));
+		engine->RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z));
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f()", asFUNCTION(Vec3_DefaultCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(float,float,float)", asFUNCTION(Vec3_Ctor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(const Vec3 &in)", asFUNCTION(Vec3_CopyCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(Vec3_DefaultDtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectMethod("Vec3", "float Length() const", asMETHOD(Vec3, Length), asCALL_THISCALL);
+		engine->RegisterGlobalFunction("float SumVec3(const Vec3 &in)", asFUNCTION(SumVec3), asCALL_CDECL);
+		engine->RegisterGlobalFunction("float SumVec3_Obj(Vec3)", asFUNCTION(SumVec3_Obj), asCALL_CDECL);
+
+		asIScriptModule* mod = engine->GetModule("test_derive_call_cpp", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		mod->AddScriptSection("test_derive_call_cpp",
+			"class Entity : Vec3 {                           \n"
+			"  int id;                                       \n"
+			"  Entity() {                                    \n"
+			"    super(2.0f, 3.0f, 4.0f);                    \n"
+			"    id = 42;                                    \n"
+			"  }                                              \n"
+			"}                                                \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+			return fail;
+		}
+
+		r = ExecuteString(engine,
+			"Entity e;                                       \n"
+			"assert(SumVec3(e) == 9.0f);                     \n"
+			"assert(SumVec3_Obj(e) == 9.0f);                     \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Derive call C++ exception");
+			TEST_FAILED;
+		}
+
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+	}
+
+	// ------------------------------------------------------------------
+	// Test 11: Deep value type inheritance chain (two levels)
+	// Tests that multi-level inheritance from a C++ value type works correctly,
+	// including property access at each level, inherited methods, copy construction,
+	// and type info queries.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+		engine->RegisterGlobalFunction("void FloatValue(float)", asFUNCTION(FloatValue), asCALL_CDECL);
+		engine->RegisterGlobalFunction("void IntValue(int)", asFUNCTION(IntValue), asCALL_CDECL);
+		engine->RegisterGlobalFunction("void IntValue2(int,int)", asFUNCTION(IntValue2), asCALL_CDECL);
+
+		engine->RegisterObjectType("Vec3", sizeof(Vec3), asOBJ_VALUE | asGetTypeTraits<Vec3>());
+		engine->RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x));
+		engine->RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y));
+		engine->RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z));
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f()", asFUNCTION(Vec3_DefaultCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(Vec3_DefaultDtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(const Vec3 &in)", asFUNCTION(Vec3_CopyCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(float,float,float)", asFUNCTION(Vec3_Ctor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectMethod("Vec3", "float Length() const", asMETHOD(Vec3, Length), asCALL_THISCALL);
+
+		asIScriptModule* mod = engine->GetModule("test_deep_inherit", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		// Two-level inheritance chain: Vec3 -> ColoredVec3 -> NamedLight
+		mod->AddScriptSection("test_deep_inherit",
+			"class ColoredVec3 : Vec3 {                    \n"
+			"  int color;                                  \n"
+			"  ColoredVec3() {                             \n"
+			"    super();                                  \n"
+			"    color = 0;                                \n"
+			"  }                                            \n"
+			"  ColoredVec3(const ColoredVec3 &other) {     \n"
+			"    super(other);                             \n"
+			"    color = other.color;                      \n"
+			"  }                                            \n"
+			"  bool IsDark() const { return color == 0; }   \n"
+			"}                                              \n"
+			"class NamedLight : ColoredVec3 {               \n"
+			"  int nameId;                                 \n"
+			"  float intensity;                            \n"
+			"  NamedLight() {                              \n"
+			"    super();                                  \n"
+			"    nameId = -1;                              \n"
+			"    intensity = 1.0f;                         \n"
+			"  }                                            \n"
+			"  NamedLight(const NamedLight &other) {       \n"
+			"    super(other);                             \n"
+			"    nameId = other.nameId;                    \n"
+			"    intensity = other.intensity;              \n"
+			"  }                                            \n"
+			"  float GetBrightness() const {                \n"
+			"    return intensity * Length();              \n"
+			"  }                                            \n"
+			"}                                              \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+			return fail;
+		}
+
+		r = ExecuteString(engine,
+			// Test default construction — verify all levels
+			"NamedLight nl;                                \n"
+			"assert(nl.x == 0.0f);                         \n"
+			"assert(nl.y == 0.0f);                         \n"
+			"assert(nl.z == 0.0f);                         \n"
+			"assert(nl.color == 0);                        \n"
+			"assert(nl.nameId == -1);                      \n"
+			"assert(nl.intensity == 1.0f);                 \n"
+			// Test inherited methods (Length from Vec3)
+			"assert(nl.Length() == 0.0f);                  \n"
+			// Test middle-class method (IsDark from ColoredVec3)
+			"assert(nl.IsDark());                          \n"
+			// Test own method that chains to inherited
+			"assert(nl.GetBrightness() == 0.0f);           \n"
+			 //Set properties at ALL three levels
+			"nl.x = 3.0f;                                  \n"
+			"nl.y = 4.0f;                                  \n"
+			"nl.z = 0.0f;                                  \n"
+			"nl.color = 0xFF0000;                          \n"
+			"assert(nl.color == 0xFF0000);                \n"
+			"nl.nameId = 42;                               \n"
+			"nl.intensity = 2.5f;                          \n"
+			"assert(nl.Length() == 5.0f);                  \n"
+			"assert(!nl.IsDark());                         \n"
+			"assert(nl.GetBrightness() == 12.5f);          \n"
+			 //Test copy construction at leaf level
+			"NamedLight nl2 = nl;                          \n"
+			"IntValue2(nl2.color, 0xFF0000);               \n"
+			"assert(nl2.x == 3.0f);                        \n"
+			"assert(nl2.y == 4.0f);                        \n"
+			"assert(nl2.z == 0.0f);                        \n"
+			"assert(nl2.color == 0xFF0000);                \n"
+			"assert(nl2.nameId == 42);                     \n"
+			"assert(nl2.intensity == 2.5f);                \n"
+			// Verify independent copy (deep copy semantics)
+			"nl2.x = 99.0f;                                \n"
+			"nl2.color = 1;                                \n"
+			"nl2.intensity = 0.5f;                         \n"
+			"assert(nl.x == 3.0f);                         \n"
+			"assert(nl.color == 0xFF0000);                 \n"
+			"assert(nl.intensity == 2.5f);                 \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Deep inheritance exception");
+			TEST_FAILED;
+		}
+
+		// Verify type info — leaf derives from both middle and root
+		asITypeInfo* leafType = mod->GetTypeInfoByName("NamedLight");
+		asITypeInfo* midType = mod->GetTypeInfoByName("ColoredVec3");
+		if (!leafType || !midType)
+			TEST_FAILED;
+		if (!leafType->DerivesFrom(engine->GetTypeInfoByName("Vec3")))
+			TEST_FAILED;
+		if (!leafType->DerivesFrom(midType))
+			TEST_FAILED;
+		if (strcmp(leafType->GetBaseType()->GetName(), "ColoredVec3") != 0)
+		{
+			PRINTF("Expected direct base ColoredVec3, got %s\n", leafType->GetBaseType()->GetName());
+			TEST_FAILED;
+		}
+
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+	}
+
+	// ------------------------------------------------------------------
+	// Test 12: Return derived value type by value from function
+	// Tests that returning a derived object from a function correctly
+	// invokes copy constructors at each level of the inheritance chain.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		engine->RegisterObjectType("Vec3", sizeof(Vec3), asOBJ_VALUE | asGetTypeTraits<Vec3>());
+		engine->RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x));
+		engine->RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y));
+		engine->RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z));
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f()", asFUNCTION(Vec3_DefaultCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(Vec3_DefaultDtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(const Vec3 &in)", asFUNCTION(Vec3_CopyCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(float,float,float)", asFUNCTION(Vec3_Ctor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectMethod("Vec3", "float Length() const", asMETHOD(Vec3, Length), asCALL_THISCALL);
+
+		asIScriptModule* mod = engine->GetModule("test_return_byval", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		mod->AddScriptSection("test_return_byval",
+			"class EntityPos : Vec3 {                      \n"
+			"  int id;                                     \n"
+			"  EntityPos() {                               \n"
+			"    super(1.0f, 2.0f, 3.0f);                  \n"
+			"    id = -1;                                  \n"
+			"  }                                            \n"
+			"  EntityPos(const EntityPos &other) {          \n"
+			"    super(other);                             \n"
+			"    id = other.id;                            \n"
+			"  }                                            \n"
+			"  void SetID(int i) { id = i; }                \n"
+			"}                                              \n"
+			"EntityPos MakeEntity(int val) {                \n"
+			"  EntityPos e;                                \n"
+			"  e.SetID(val);                               \n"
+			"  return e;                                   \n"
+			"}                                              \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+			return fail;
+		}
+
+		r = ExecuteString(engine,
+			// Function returns by value — exercises copy ctor chain
+			"EntityPos result = MakeEntity(77);            \n"
+			"assert(result.x == 1.0f);                     \n"
+			"assert(result.y == 2.0f);                     \n"
+			"assert(result.z == 3.0f);                     \n"
+			"assert(result.id == 77);                      \n"
+			// Calling again with different value
+			"EntityPos result2 = MakeEntity(99);            \n"
+			"assert(result2.id == 99);                     \n"
+			"assert(result2.x == 1.0f);                    \n"
+			// Verify original is unchanged after second call
+			"assert(result.id == 77);                      \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Return by value exception");
+			TEST_FAILED;
+		}
+
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+	}
+
+	// ------------------------------------------------------------------
+	// Test 13: Destructor chaining for derived value types
+	// Verifies that the Vec3 C++ destructor is called correctly when
+	// derived script objects are created and destroyed.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		Vec3::dtorCount = 0;
+
+		engine->RegisterObjectType("Vec3", sizeof(Vec3), asOBJ_VALUE | asGetTypeTraits<Vec3>());
+		engine->RegisterObjectProperty("Vec3", "float x", asOFFSET(Vec3, x));
+		engine->RegisterObjectProperty("Vec3", "float y", asOFFSET(Vec3, y));
+		engine->RegisterObjectProperty("Vec3", "float z", asOFFSET(Vec3, z));
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f()", asFUNCTION(Vec3_DefaultCtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(Vec3_DefaultDtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectBehaviour("Vec3", asBEHAVE_CONSTRUCT, "void f(float,float,float)", asFUNCTION(Vec3_Ctor), asCALL_CDECL_OBJLAST);
+		engine->RegisterObjectMethod("Vec3", "float Length() const", asMETHOD(Vec3, Length), asCALL_THISCALL);
+
+		asIScriptModule* mod = engine->GetModule("test_dtor_chain", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		mod->AddScriptSection("test_dtor_chain",
+			"class Entity : Vec3 {                         \n"
+			"  int id;                                     \n"
+			"  Entity() {                                  \n"
+			"    super(1.0f, 2.0f, 3.0f);                  \n"
+			"    id = 0;                                   \n"
+			"  }                                            \n"
+			"}                                              \n"
+			"void TestScope() {                            \n"
+			"  Entity e;                                   \n"
+			"  assert(e.x == 1.0f);                        \n"
+			"  assert(e.y == 2.0f);                        \n"
+			"  assert(e.z == 3.0f);                        \n"
+			"  {                                           \n"
+			"    Entity inner;                             \n"
+			"    assert(inner.x == 1.0f);                  \n"
+			"    /* inner goes out of scope here */        \n"
+			"  }                                            \n"
+			"  /* e still alive here */                     \n"
+			"}                                              \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+			return fail;
+		}
+
+		r = ExecuteString(engine,
+			"TestScope();                                  \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Dtor chain exception");
+			TEST_FAILED;
+		}
+
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+
+		// Two objects created in TestScope: e and inner
+		// Plus TempEntity for... actually just e and inner = 2 Vec3 destructor calls
+		// script function call creates a temporary context object too
+		// At minimum: 2 Vec3 destructor calls (e + inner)
+		if (Vec3::dtorCount < 2)
+		{
+			PRINTF("Expected at least 2 Vec3 destructor calls, got %d\n", Vec3::dtorCount);
+			TEST_FAILED;
+		}
+	}
 
 	// ------------------------------------------------------------------
 	// Test 8: Value type - explicit copy constructor with super(other)
@@ -175,8 +546,6 @@ bool Test()
 		engine->GarbageCollect();
 		engine->ShutDownAndRelease();
 	}
-
-	return true;
 
 	// ------------------------------------------------------------------
 	// Test 9: Value type - default generated copy constructor in derived class
@@ -582,8 +951,6 @@ bool Test()
 		engine->GarbageCollect();
 		engine->ShutDownAndRelease();
 	}
-
-	return true;
 
 	// ------------------------------------------------------------------
 	// Test ?: Ref-type base class inheritance
