@@ -3586,10 +3586,17 @@ void asCBuilder::CompileClasses(asUINT numTempl)
 					if( !found )
 					{
 						// Push the base class function on the virtual function table
-						ot->virtualFunctionTable.PushLast(baseType->virtualFunctionTable[m]);
-						baseType->virtualFunctionTable[m]->AddRefInternal();
+						// The methods array may contain entries inherited from a non-script
+						// base that have no VFT counterpart, so check funcType and use
+						// vfTableIdx for correct indexing
+						if( baseFunc->funcType == asFUNC_VIRTUAL )
+						{
+							asUINT idx = baseFunc->vfTableIdx;
+							ot->virtualFunctionTable.PushLast(baseType->virtualFunctionTable[idx]);
+							baseType->virtualFunctionTable[idx]->AddRefInternal();
 
-						CheckForConflictsDueToDefaultArgs(decl->script, decl->node, baseType->virtualFunctionTable[m], ot);
+							CheckForConflictsDueToDefaultArgs(decl->script, decl->node, baseType->virtualFunctionTable[idx], ot);
+						}
 					}
 
 					ot->methods.PushLast(baseType->methods[m]);

@@ -8006,9 +8006,7 @@ asUINT asCCompiler::ImplicitConvObjectRef(asCExprContext *ctx, const asCDataType
 				// the base class sub-object starts after the asCScriptObject header, so we
 				// need to adjust the pointer to point to the base class sub-object
 				if (fromType && toType &&
-					(fromType->flags & asOBJ_SCRIPT_OBJECT) &&
-					!(toType->flags & asOBJ_SCRIPT_OBJECT) &&
-					!ctx->type.IsNullConstant())
+					(fromType->flags & asOBJ_SCRIPT_OBJECT) && toType->DerivesFromNative() && !ctx->type.IsNullConstant())
 				{
 					if (ctx->type.dataType.IsReference())
 						Dereference(ctx, true);
@@ -17515,7 +17513,7 @@ void asCCompiler::PerformFunctionCall(int funcId, asCExprContext *ctx, bool isCo
 			ctx->bc.Call(asBC_CALL    , descr->id, argSize);
 		else if( descr->funcType == asFUNC_SYSTEM )
 		{
-			if (objType && objType->derivedFrom && !(objType->derivedFrom->flags & asOBJ_SCRIPT_OBJECT))
+			if (objType && objType->DerivesFromNative())
 				ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
 			// Check if we can use the faster asBC_Thiscall1 instruction, i.e. one of
 			//    type &obj::func(int)

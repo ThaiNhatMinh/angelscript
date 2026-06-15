@@ -183,6 +183,17 @@ bool asCObjectType::DerivesFrom(const asITypeInfo *objType) const
 	return false;
 }
 
+bool asCObjectType::DerivesFromNative() const
+{
+	if (!derivedFrom)
+		return false;
+	// If parent is a script object, check parent.
+	if (derivedFrom->flags & asOBJ_SCRIPT_OBJECT)
+		return derivedFrom->DerivesFromNative();
+	
+	return true;
+}
+
 // interface
 int asCObjectType::GetSubTypeId(asUINT subtypeIndex) const
 {
