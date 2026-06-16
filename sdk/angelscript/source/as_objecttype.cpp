@@ -194,6 +194,16 @@ bool asCObjectType::DerivesFromNative() const
 	return true;
 }
 
+asCObjectType* asCObjectType::GetNativeBaseType() const
+{
+	if (!derivedFrom)
+		return nullptr;
+	// If parent is a script object, check parent.
+	if (derivedFrom->flags & asOBJ_SCRIPT_OBJECT)
+		return derivedFrom->GetNativeBaseType();
+	return derivedFrom;
+}
+
 // interface
 int asCObjectType::GetSubTypeId(asUINT subtypeIndex) const
 {

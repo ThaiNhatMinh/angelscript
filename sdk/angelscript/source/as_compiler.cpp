@@ -622,7 +622,7 @@ void asCCompiler::CompileMemberInitializationCopy(asCByteCode* bc)
 	{
 		asCObjectProperty* prop = outFunc->objectType->properties[n];
 
-		// Skip the private $base property � it represents the C++ base sub-object
+		// Skip the private $base property — it represents the C++ base sub-object
 		// and is handled by the base class constructor
 		if (prop->name == "$base" && prop->isPrivate)
 			continue;
@@ -11350,8 +11350,8 @@ int asCCompiler::CompileVariableAccess(const asCString &name, const asCString &s
 			// TODO: This is the same as what is in CompileExpressionPostOp
 			// Put the offset on the stack
 			// If the property was resolved through the $base private property (C++ base class),
-			// combine the base sub-object offset with the property's relative offset
-			int totalOffset = prop->byteOffset;
+			// combine the base sub-object offset with the property's relative offset.
+			// For ref-type bases, $base is a pointer that must be dereferenced first.
 			{
 				asCObjectType *accessType = CastToObjectType(dt.GetTypeInfo());
 				bool isFromBase = true;
@@ -11367,10 +11367,28 @@ int asCCompiler::CompileVariableAccess(const asCString &name, const asCString &s
 				{
 					asCObjectProperty *baseProp = accessType->GetHiddenBaseProperty();
 					if (baseProp)
-						totalOffset = baseProp->byteOffset + prop->byteOffset;
+					{
+						if (baseProp->type.IsReference() || (baseProp->type.GetTypeInfo()->flags & asOBJ_REF))
+						{
+							// $base is a pointer to the ref-type base sub-object.
+							// Add $base.byteOffset to get the pointer slot, dereference,
+							// then add the property offset within the base object.
+							ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)baseProp->byteOffset, engine->GetTypeIdFromDataType(dt));
+							ctx->bc.Instr(asBC_RDSPtr);
+							ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(dt));
+						}
+						else
+						{
+							int totalOffset = baseProp->byteOffset + prop->byteOffset;
+							ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)totalOffset, engine->GetTypeIdFromDataType(dt));
+						}
+					}
+				}
+				else
+				{
+					ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(dt));
 				}
 			}
-			ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)totalOffset, engine->GetTypeIdFromDataType(dt));
 			if (prop->type.IsReference())
 				ctx->bc.Instr(asBC_RDSPtr);
 
@@ -13045,17 +13063,8 @@ int asCCompiler::CompileFunctionCall(asCScriptNode *node, asCExprContext *ctx, a
 
 			// The object pointer is located at stack position 0
 			ctx->bc.InstrSHORT(asBC_PSF, 0);
-			// If the method is from a C++ base class, adjust this pointer to the base sub-object
-
-			asCObjectProperty* baseProp = objectType->GetHiddenBaseProperty();
-			if (baseProp)
-			{
-				ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)baseProp->byteOffset, 0);
-			}
 			ctx->type.SetVariable(dt, 0, false);
 			ctx->type.dataType.MakeReference(true);
-
-			Dereference(ctx, true);
 		}
 		else if (funcs.GetLength() && !objectType && !outFunc->objectType)
 		{
@@ -14494,9 +14503,9 @@ int asCCompiler::CompileExpressionPostOp(asCScriptNode *node, asCExprContext *ct
 
 					// Put the offset on the stack
 					// This must always be done even if the offset is 0 so the type info is stored
-					// If the property was resolved through the $base private property, combine the base offset
+					// If the property was resolved through the $base private property, combine the base offset.
+					// For ref-type bases, $base is a pointer that must be dereferenced first.
 					{
-						int totalOffset = prop->byteOffset;
 						asCObjectType *accessType = CastToObjectType(ctx->type.dataType.GetTypeInfo());
 						bool isFromBase = true;
 						for (asUINT i = 0; i < accessType->properties.GetLength(); i++)
@@ -14511,9 +14520,27 @@ int asCCompiler::CompileExpressionPostOp(asCScriptNode *node, asCExprContext *ct
 						{
 							asCObjectProperty *baseProp = accessType->GetHiddenBaseProperty();
 							if (baseProp)
-								totalOffset = baseProp->byteOffset + prop->byteOffset;
+							{
+								if (baseProp->type.IsReference() || (baseProp->type.GetTypeInfo()->flags & asOBJ_REF))
+								{
+									// $base is a pointer to the ref-type base sub-object.
+									// Add $base.byteOffset to get the pointer slot, dereference,
+									// then add the property offset within the base object.
+									ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)baseProp->byteOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(ctx->type.dataType.GetTypeInfo(), false)));
+									ctx->bc.Instr(asBC_RDSPtr);
+									ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(ctx->type.dataType.GetTypeInfo(), false)));
+								}
+								else
+								{
+									int totalOffset = baseProp->byteOffset + prop->byteOffset;
+									ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)totalOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(ctx->type.dataType.GetTypeInfo(), false)));
+								}
+							}
 						}
-						ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)totalOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(ctx->type.dataType.GetTypeInfo(), false)));
+						else
+						{
+							ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)prop->byteOffset, engine->GetTypeIdFromDataType(asCDataType::CreateType(ctx->type.dataType.GetTypeInfo(), false)));
+						}
 					}
 
 					if( prop->type.IsReference() )
@@ -17595,7 +17622,24 @@ void asCCompiler::PerformFunctionCall(int funcId, asCExprContext *ctx, bool isCo
 		else if( descr->funcType == asFUNC_SYSTEM )
 		{
 			if (objType && objType->DerivesFromNative())
-				ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+			{
+				auto NativeObjectType = objType->GetNativeBaseType();
+				if (NativeObjectType->flags & asOBJ_VALUE)
+					ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+				else if (NativeObjectType->flags & asOBJ_REF)
+				{
+					// For ref types, $base is a pointer to the native ref sub-object.
+					// Add $base.byteOffset to get the handle slot, then dereference
+					// to get the actual native ref object pointer.
+					asCObjectProperty *baseProp = objType->GetHiddenBaseProperty();
+					if (baseProp)
+					{
+						ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)baseProp->byteOffset, 0);
+						ctx->bc.Instr(asBC_RDSPtr);
+					}
+				}
+
+			}
 			// Check if we can use the faster asBC_Thiscall1 instruction, i.e. one of
 			//    type &obj::func(int)
 			//    type &obj::func(uint)

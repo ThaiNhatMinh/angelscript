@@ -349,6 +349,19 @@ asCScriptObject::asCScriptObject(asCObjectType *ot, bool doInitialize)
 	// members, but just the memset is faster than having to loop and check the datatypes
 	memset((void*)(this+1), 0, objType->size - sizeof(asCScriptObject));
 
+	// Allocate the $base sub-object for C++ ref-type base classes.
+	// This must happen unconditionally because the compiler cannot call beh.construct
+	// on ref types (it is always 0). The $base property stores a pointer to the
+	// separately allocated ref-type base object.
+	{
+		asCObjectProperty *baseProp = objType->GetHiddenBaseProperty();
+		if (baseProp)
+		{
+			asPWORD *ptr = reinterpret_cast<asPWORD*>(reinterpret_cast<asBYTE*>(this) + baseProp->byteOffset);
+			*ptr = (asPWORD)AllocateUninitializedObject(CastToObjectType(baseProp->type.GetTypeInfo()), objType->engine);
+		}
+	}
+
 	if( doInitialize )
 	{
 #ifdef AS_NO_MEMBER_INIT
@@ -358,8 +371,7 @@ asCScriptObject::asCScriptObject(asCObjectType *ot, bool doInitialize)
 		{
 			asCObjectProperty *prop = objType->properties[n];
 
-			// Skip the $base property — it represents the embedded C++ base sub-object,
-			// not a separately allocated ref object
+			// Skip the $base property — already allocated above
 			if (prop->name == "$base" && prop->isPrivate)
 				continue;
 
@@ -385,7 +397,7 @@ asCScriptObject::asCScriptObject(asCObjectType *ot, bool doInitialize)
 		{
 			asCObjectProperty *prop = objType->properties[n];
 
-			// Skip the $base property — it represents the embedded C++ base sub-object
+			// Skip the $base property — already allocated above
 			if (prop->name == "$base" && prop->isPrivate)
 				continue;
 
@@ -455,10 +467,7 @@ asCScriptObject::~asCScriptObject()
 	for( int n = (int)objType->properties.GetLength()-1; n >= 0; n-- )
 	{
 		asCObjectProperty *prop = objType->properties[n];
-
-		// Skip the $base property — it represents the embedded C++ base sub-object
-		// whose destruction is handled by the base class destructor via Destruct()
-		if (prop->name == "$base" && prop->isPrivate)
+		if (prop->name == "$base")
 			continue;
 
 		if( prop->type.IsObject() )
@@ -722,9 +731,20 @@ void asCScriptObject::CallDestructor()
 					ctx->SetObject(this);
 				else
 				{
-					asCObjectProperty *baseProp = ot->GetHiddenBaseProperty();
-					int baseOffset = baseProp ? baseProp->byteOffset : sizeof(asCScriptObject);
-					ctx->SetObject((void*)((char*)this + baseOffset));
+					if (DestructFunc->objectType->flags & asOBJ_REF)
+					{
+						asCObjectProperty* baseProp = objType->GetHiddenBaseProperty();
+						void* baseObj = *(void**)(((char*)this) + baseProp->byteOffset);
+						ctx->SetObject(baseObj);
+					}
+					else if (DestructFunc->objectType->flags & asOBJ_VALUE)
+					{
+						ctx->SetObject((void*)((char*)this + sizeof(asCScriptObject)));
+					}
+					else
+					{
+						ctx->Abort();
+					}
 				}
 
 				for(;;)
@@ -845,32 +865,37 @@ void asCScriptObject::EnumReferences(asIScriptEngine *engine)
 	{
 		asCObjectProperty *prop = objType->properties[n];
 
-		// The $base property represents the embedded C++ base sub-object.
-		// Walk the base type's properties directly instead of treating $base as a regular property.
+		// The $base property holds a pointer to the ref-type base sub-object.
+		// Walk the base type's properties relative to the base object pointer,
+		// since the base type's properties are not embedded in this object's memory.
 		if (prop->name == "$base" && prop->isPrivate)
 		{
 			asCObjectType *baseType = CastToObjectType(prop->type.GetTypeInfo());
 			if (baseType)
 			{
-				for (asUINT b = 0; b < baseType->properties.GetLength(); b++)
+				void *baseObj = *(void**)(((char*)this) + prop->byteOffset);
+				if (baseObj)
 				{
-					asCObjectProperty *baseProp = baseType->properties[b];
-					void *ptr = 0;
-					if (baseProp->type.IsObject())
+					for (asUINT b = 0; b < baseType->properties.GetLength(); b++)
 					{
-						if (baseProp->type.IsReference() || (baseProp->type.GetTypeInfo()->flags & asOBJ_REF))
-							ptr = *(void**)(((char*)this) + prop->byteOffset + baseProp->byteOffset);
-						else
-							ptr = (void*)(((char*)this) + prop->byteOffset + baseProp->byteOffset);
+						asCObjectProperty *baseProp = baseType->properties[b];
+						void *ptr = 0;
+						if (baseProp->type.IsObject())
+						{
+							if (baseProp->type.IsReference() || (baseProp->type.GetTypeInfo()->flags & asOBJ_REF))
+								ptr = *(void**)(((char*)baseObj) + baseProp->byteOffset);
+							else
+								ptr = (void*)(((char*)baseObj) + baseProp->byteOffset);
 
-						if ((baseProp->type.GetTypeInfo()->flags & asOBJ_VALUE) && (baseProp->type.GetTypeInfo()->flags & asOBJ_GC))
-							reinterpret_cast<asCScriptEngine*>(engine)->CallObjectMethod(ptr, engine, CastToObjectType(baseProp->type.GetTypeInfo())->beh.gcEnumReferences);
+							if ((baseProp->type.GetTypeInfo()->flags & asOBJ_VALUE) && (baseProp->type.GetTypeInfo()->flags & asOBJ_GC))
+								reinterpret_cast<asCScriptEngine*>(engine)->CallObjectMethod(ptr, engine, CastToObjectType(baseProp->type.GetTypeInfo())->beh.gcEnumReferences);
+						}
+						else if (baseProp->type.IsFuncdef())
+							ptr = *(void**)(((char*)baseObj) + baseProp->byteOffset);
+
+						if (ptr)
+							((asCScriptEngine*)engine)->GCEnumCallback(ptr);
 					}
-					else if (baseProp->type.IsFuncdef())
-						ptr = *(void**)(((char*)this) + prop->byteOffset + baseProp->byteOffset);
-
-					if (ptr)
-						((asCScriptEngine*)engine)->GCEnumCallback(ptr);
 				}
 			}
 			continue;
@@ -905,47 +930,51 @@ void asCScriptObject::ReleaseAllHandles(asIScriptEngine *engine)
 	{
 		asCObjectProperty *prop = objType->properties[n];
 
-		// The $base property represents the embedded C++ base sub-object.
-		// Walk the base type's properties directly instead of treating $base as a regular property.
+		// The $base property holds a pointer to the ref-type base sub-object.
+		// Walk the base type's properties relative to the base object pointer.
 		if (prop->name == "$base" && prop->isPrivate)
 		{
 			asCObjectType *baseType = CastToObjectType(prop->type.GetTypeInfo());
 			if (baseType)
 			{
-				for (asUINT b = 0; b < baseType->properties.GetLength(); b++)
+				void *baseObj = *(void**)(((char*)this) + prop->byteOffset);
+				if (baseObj)
 				{
-					asCObjectProperty *baseProp = baseType->properties[b];
-					if (baseProp->type.IsObject())
+					for (asUINT b = 0; b < baseType->properties.GetLength(); b++)
 					{
-						if (baseProp->type.IsObjectHandle())
+						asCObjectProperty *baseProp = baseType->properties[b];
+						if (baseProp->type.IsObject())
 						{
-							void **ptr = (void**)(((char*)this) + prop->byteOffset + baseProp->byteOffset);
-							if (*ptr)
+							if (baseProp->type.IsObjectHandle())
 							{
-								asASSERT((baseProp->type.GetTypeInfo()->flags & asOBJ_NOCOUNT) || baseProp->type.GetBehaviour()->release);
-								if (baseProp->type.GetBehaviour()->release)
-									((asCScriptEngine*)engine)->CallObjectMethod(*ptr, baseProp->type.GetBehaviour()->release);
-								*ptr = 0;
+								void **ptr = (void**)(((char*)baseObj) + baseProp->byteOffset);
+								if (*ptr)
+								{
+									asASSERT((baseProp->type.GetTypeInfo()->flags & asOBJ_NOCOUNT) || baseProp->type.GetBehaviour()->release);
+									if (baseProp->type.GetBehaviour()->release)
+										((asCScriptEngine*)engine)->CallObjectMethod(*ptr, baseProp->type.GetBehaviour()->release);
+									*ptr = 0;
+								}
+							}
+							else if ((baseProp->type.GetTypeInfo()->flags & asOBJ_VALUE) && (baseProp->type.GetTypeInfo()->flags & asOBJ_GC))
+							{
+								void *ptr = 0;
+								if (baseProp->type.IsReference())
+									ptr = *(void**)(((char*)baseObj) + baseProp->byteOffset);
+								else
+									ptr = (void*)(((char*)baseObj) + baseProp->byteOffset);
+
+								reinterpret_cast<asCScriptEngine*>(engine)->CallObjectMethod(ptr, engine, CastToObjectType(baseProp->type.GetTypeInfo())->beh.gcReleaseAllReferences);
 							}
 						}
-						else if ((baseProp->type.GetTypeInfo()->flags & asOBJ_VALUE) && (baseProp->type.GetTypeInfo()->flags & asOBJ_GC))
+						else if (baseProp->type.IsFuncdef())
 						{
-							void *ptr = 0;
-							if (baseProp->type.IsReference())
-								ptr = *(void**)(((char*)this) + prop->byteOffset + baseProp->byteOffset);
-							else
-								ptr = (void*)(((char*)this) + prop->byteOffset + baseProp->byteOffset);
-
-							reinterpret_cast<asCScriptEngine*>(engine)->CallObjectMethod(ptr, engine, CastToObjectType(baseProp->type.GetTypeInfo())->beh.gcReleaseAllReferences);
-						}
-					}
-					else if (baseProp->type.IsFuncdef())
-					{
-						asCScriptFunction **ptr = (asCScriptFunction**)(((char*)this) + prop->byteOffset + baseProp->byteOffset);
-						if (*ptr)
-						{
-							(*ptr)->Release();
-							*ptr = 0;
+							asCScriptFunction **ptr = (asCScriptFunction**)(((char*)baseObj) + baseProp->byteOffset);
+							if (*ptr)
+							{
+								(*ptr)->Release();
+								*ptr = 0;
+							}
 						}
 					}
 				}

@@ -104,6 +104,7 @@ public:
 	asITypeInfo       *GetBaseType() const;
 	bool               DerivesFrom(const asITypeInfo* objType) const;
 	bool               DerivesFromNative() const;
+	asCObjectType*	   GetNativeBaseType() const;
 	int                GetSubTypeId(asUINT subtypeIndex = 0) const;
 	asITypeInfo       *GetSubType(asUINT subtypeIndex = 0) const;
 	asUINT             GetSubTypeCount() const;

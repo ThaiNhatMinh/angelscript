@@ -3541,29 +3541,7 @@ void asCBuilder::CompileClasses(asUINT numTempl)
 				// For C++ ref types, add a single private $base property that represents
 				// the embedded C++ sub-object. This avoids copying all base properties
 				// and provides a clean handle to the base for the compiler and runtime.
-				asCObjectProperty *baseProp = asNEW(asCObjectProperty);
-				if (baseProp)
-				{
-					baseProp->name        = "$base";
-					baseProp->type        = asCDataType::CreateType(baseType, false);
-					baseProp->type.MakeReference(true);
-					baseProp->byteOffset  = sizeof(asCScriptObject);
-					baseProp->isPrivate   = true;
-					baseProp->isProtected = false;
-					baseProp->isInherited = true;
-					baseProp->accessMask  = 0xFFFFFFFF;
-
-					ot->properties.PushLast(baseProp);
-
-					// Adjust the object size so that derived properties start after the C++ base sub-object
-					ot->size = sizeof(asCScriptObject) + baseType->size;
-
-					// Add reference for the base type held by this property
-					asCConfigGroup *group = engine->FindConfigGroupForTypeInfo(baseProp->type.GetTypeInfo());
-					if (group) group->AddRef();
-					asCTypeInfo *type = baseProp->type.GetTypeInfo();
-					if (type) type->AddRefInternal();
-				}
+				asCObjectProperty* baseProp = AddPropertyToClass(decl, "$base", asCDataType::CreateType(baseType, false), true, false, true);
 			}
 			else
 			{
