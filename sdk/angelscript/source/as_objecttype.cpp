@@ -609,11 +609,15 @@ asCObjectProperty *asCObjectType::AddPropertyToClass(const asCString &propName, 
 // internal
 asCObjectProperty *asCObjectType::GetHiddenBaseProperty() const
 {
+	if (!derivedFrom || !(derivedFrom->flags & asOBJ_REF))
+		return nullptr;
+	// If the parent is a script object, check the parent for the hidden $base property.
+	if (derivedFrom->flags & asOBJ_SCRIPT_OBJECT)
+		return derivedFrom->GetHiddenBaseProperty();
+
 	// Returns the private $base property if this script class derives from a C++ registered REF type.
 	// The $base property represents the embedded C++ base sub-object and is not visible to scripts.
 	// For value types, the existing property-copying approach is used instead.
-	if (!derivedFrom || (derivedFrom->flags & asOBJ_SCRIPT_OBJECT) || !(derivedFrom->flags & asOBJ_REF))
-		return 0;
 
 	for (asUINT n = 0; n < properties.GetLength(); n++)
 	{

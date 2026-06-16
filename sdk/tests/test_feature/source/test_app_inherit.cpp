@@ -122,6 +122,174 @@ bool Test()
 	int  r;
 	CBufferedOutStream bout;
 
+
+	// ------------------------------------------------------------------
+	// Test ?: Ref type - multi-level inheritance with polymorphism
+	// Tests a deep ref type inheritance chain (Gadget : Widget : MyRefBase),
+	// polymorphic storage via base handles, object identity through handle
+	// chain, passing derived ref to function expecting base ref, and
+	// ref-count integrity across the entire inheritance tree.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+		engine->RegisterGlobalFunction("void FloatValue(float)", asFUNCTION(FloatValue), asCALL_CDECL);
+		engine->RegisterGlobalFunction("void IntValue(int)", asFUNCTION(IntValue), asCALL_CDECL);
+		engine->RegisterGlobalFunction("void IntValue2(int, int)", asFUNCTION(IntValue2), asCALL_CDECL);
+
+		MyRefBase::dtorCount = 0;
+
+		engine->RegisterObjectType("MyRefBase", 0, asOBJ_REF);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_FACTORY, "MyRefBase@ f()", asFUNCTION(MyRefBase_Factory), asCALL_CDECL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_ADDREF, "void f()", asMETHOD(MyRefBase, AddRef), asCALL_THISCALL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_RELEASE, "void f()", asMETHOD(MyRefBase, Release), asCALL_THISCALL);
+		engine->RegisterObjectProperty("MyRefBase", "int x", asOFFSET(MyRefBase, x));
+		engine->RegisterObjectProperty("MyRefBase", "float y", asOFFSET(MyRefBase, y));
+		engine->RegisterObjectMethod("MyRefBase", "int Sum() const", asFUNCTION(MyRefBase_Sum), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectMethod("MyRefBase", "void SetXY(int, float)", asFUNCTION(MyRefBase_SetXY), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(MyRefBase_Dtor), asCALL_CDECL_OBJLAST);
+
+		asIScriptModule* mod = engine->GetModule("test_ref_multi", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		// Multi-level inheritance chain:
+		//   MyRefBase (base: x, y, Sum(), SetXY())
+		//   └─ Widget  (adds: id, MakeID(), GetInfo())
+		//      └─ Gadget (adds: tag, MakeTag(), Describe())
+		mod->AddScriptSection("test_ref_multi",
+			"class Widget : MyRefBase {                         \n"
+			"  int id;                                           \n"
+			"  Widget() {                                        \n"
+			"    SetXY(1, 2.0f);                                 \n"
+			"    id = 100;                                       \n"
+			"  }                                                  \n"
+			"  int MakeID() const { return id + x; }              \n"
+			"}                                                    \n"
+			"                                                     \n"
+			"class Gadget : Widget {                              \n"
+			"  int tag;                                           \n"
+			"  Gadget() {                                         \n"
+			"    SetXY(10, 20.0f);                                \n"
+			"    id = 200;                                        \n"
+			"    tag = 300;                                       \n"
+			"  }                                                   \n"
+			"  int MakeTag() const { return tag + id + Sum(); }   \n"
+			"}                                                     \n"
+			"                                                      \n"
+			// Function accepting middle-type handle — tests polymorphism
+			"int InspectWidget(Widget @w) { return w.MakeID(); }  \n"
+			"                                                      \n"
+			// Function accepting base handle — broader polymorphism
+			"int InspectBase(MyRefBase @b) { return b.Sum(); }    \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+		}
+
+		// --- Run the complex test script ---
+		r = ExecuteString(engine,
+			// 1. Direct construction — access all levels of properties & methods
+			"Gadget @g = Gadget();                               \n"
+			"assert(g.x == 10);                                  \n"
+			"assert(g.y == 20.0f);                               \n"
+			"assert(g.id == 200);                                \n"
+			"assert(g.tag == 300);                               \n"
+			"assert(g.Sum() == 30);                              \n" // MyRefBase method
+			"assert(g.MakeID() == 210);                          \n" // Widget method: 200+10
+			"assert(g.MakeTag() == 530);                         \n" // Gadget method: 300+200+30
+			"                                                    \n"
+			// 2. Polymorphism: upcast Gadget -> Widget -> MyRefBase
+			"Widget @w = g;                                      \n"
+			"assert(w.x == 10);                                  \n"
+			"assert(w.id == 200);                                \n"
+			"assert(w.MakeID() == 210);                          \n"
+			"assert(w.Sum() == 30);                              \n"
+			"                                                    \n"
+			"MyRefBase @b = g;                                   \n"
+			"assert(b.x == 10);                                  \n"
+			"assert(b.y == 20.0f);                               \n"
+			"assert(b.Sum() == 30);                              \n"
+			"                                                    \n"
+			// 3. Object identity: modifying through base handle
+			//    is visible through all derived handles
+			"b.SetXY(50, 60.0f);                                 \n"
+			"assert(g.x == 50);                                  \n"
+			"assert(g.y == 60.0f);                               \n"
+			"assert(w.x == 50);                                  \n"
+			"assert(g.Sum() == 110);                             \n" // 50+60
+			"assert(g.MakeID() == 250);                          \n" // 200+50
+			"                                                    \n"
+			// 4. Pass derived handles to base-handle functions
+			"assert(InspectWidget(g) == 250);                    \n" // Gadget@ -> Widget@
+			"assert(InspectBase(g) == 110);                      \n" // Gadget@ -> MyRefBase@
+			"assert(InspectBase(w) == 110);                      \n" // Widget@ -> MyRefBase@
+			"                                                    \n"
+			// 5. Second instance — verify independent objects
+			"Gadget @g2 = Gadget();                              \n"
+			"g2.SetXY(1, 2.0f);                                  \n"
+			"assert(g2.Sum() == 3);                              \n"
+			"assert(g.Sum() == 110);                             \n" // g unchanged
+			"assert(g2.MakeTag() == 503);                        \n" // 300+200+3
+			"                                                    \n"
+			// 6. Multiple Widget sibling from same base
+			"Widget @w2 = Widget();                              \n"
+			"assert(w2.x == 1);                                  \n"
+			"assert(w2.id == 100);                               \n"
+			"assert(w2.MakeID() == 101);                         \n" // 100+1
+			"assert(w.Sum() == 110);                             \n" // Gadget handle still valid
+			, mod);
+
+		if (r != asEXECUTION_FINISHED)
+		{
+			PRINTF("Run failed: %s\n", bout.buffer.c_str());
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Ref multi-inherit exception");
+			TEST_FAILED;
+		}
+
+		// Verify type info chain: Gadget -> Widget -> MyRefBase
+		asITypeInfo* gt = mod->GetTypeInfoByName("Gadget");
+		asITypeInfo* wt = mod->GetTypeInfoByName("Widget");
+		if (!gt || !wt)
+			TEST_FAILED;
+		if (!gt->GetBaseType() || strcmp(gt->GetBaseType()->GetName(), "Widget") != 0)
+		{
+			PRINTF("Expected Gadget base to be Widget, got %s\n",
+				gt->GetBaseType() ? gt->GetBaseType()->GetName() : "null");
+			TEST_FAILED;
+		}
+		if (!wt->GetBaseType() || strcmp(wt->GetBaseType()->GetName(), "MyRefBase") != 0)
+		{
+			PRINTF("Expected Widget base to be MyRefBase, got %s\n",
+				wt->GetBaseType() ? wt->GetBaseType()->GetName() : "null");
+			TEST_FAILED;
+		}
+		if (!gt->DerivesFrom(engine->GetTypeInfoByName("Widget")))
+			TEST_FAILED;
+		if (!gt->DerivesFrom(engine->GetTypeInfoByName("MyRefBase")))
+			TEST_FAILED;
+		if (!wt->DerivesFrom(engine->GetTypeInfoByName("MyRefBase")))
+			TEST_FAILED;
+
+		// GC and verify correct destructor count:
+		// Two Gadget objects + one Widget object = 3 MyRefBase instances
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+
+		if (MyRefBase::dtorCount != 3)
+		{
+			PRINTF("Expected 3 MyRefBase destructor calls (two Gadget + one Widget), got %d\n",
+				MyRefBase::dtorCount);
+			TEST_FAILED;
+		}
+	}
+
+	return true;
 	// ------------------------------------------------------------------
 	// Test 11: Deep value type inheritance chain (two levels)
 	// Tests that multi-level inheritance from a C++ value type works correctly,
