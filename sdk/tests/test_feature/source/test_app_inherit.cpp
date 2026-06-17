@@ -40,6 +40,11 @@ static void MyRefBase_Dtor(MyRefBase *o)
 	o->~MyRefBase();
 }
 
+static void MyRefBase_Dummy(MyRefBase* o)
+{
+	o;
+}
+
 // --- Plain value type ---
 struct Vec3
 {
@@ -149,6 +154,7 @@ bool Test()
 		engine->RegisterObjectMethod("MyRefBase", "int Sum() const", asFUNCTION(MyRefBase_Sum), asCALL_CDECL_OBJFIRST);
 		engine->RegisterObjectMethod("MyRefBase", "void SetXY(int, float)", asFUNCTION(MyRefBase_SetXY), asCALL_CDECL_OBJFIRST);
 		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(MyRefBase_Dtor), asCALL_CDECL_OBJLAST);
+		engine->RegisterGlobalFunction("void MyRefBase_Dummy(MyRefBase@)", asFUNCTION(MyRefBase_Dummy), asCALL_CDECL);
 
 		asIScriptModule* mod = engine->GetModule("test_ref_multi", asGM_ALWAYS_CREATE);
 		bout.buffer = "";
@@ -269,7 +275,7 @@ bool Test()
 				wt->GetBaseType() ? wt->GetBaseType()->GetName() : "null");
 			TEST_FAILED;
 		}
-		if (!gt->DerivesFrom(engine->GetTypeInfoByName("Widget")))
+		if (!gt->DerivesFrom(wt))
 			TEST_FAILED;
 		if (!gt->DerivesFrom(engine->GetTypeInfoByName("MyRefBase")))
 			TEST_FAILED;
@@ -290,6 +296,7 @@ bool Test()
 	}
 
 	return true;
+
 	// ------------------------------------------------------------------
 	// Test 11: Deep value type inheritance chain (two levels)
 	// Tests that multi-level inheritance from a C++ value type works correctly,
@@ -1360,6 +1367,283 @@ bool Test()
 		if (MyRefBase::dtorCount != 1)
 		{
 			PRINTF("Expected 1 MyRefBase destructor call, got %d\n", MyRefBase::dtorCount);
+			TEST_FAILED;
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// Test ?: Ref type - handle identity comparison (opEquals / is)
+	// Verifies that the `is` operator correctly compares identity
+	// for handles of derived ref types, and `==` does value equality.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		MyRefBase::dtorCount = 0;
+
+		engine->RegisterObjectType("MyRefBase", 0, asOBJ_REF);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_FACTORY, "MyRefBase@ f()", asFUNCTION(MyRefBase_Factory), asCALL_CDECL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_ADDREF, "void f()", asMETHOD(MyRefBase, AddRef), asCALL_THISCALL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_RELEASE, "void f()", asMETHOD(MyRefBase, Release), asCALL_THISCALL);
+		engine->RegisterObjectProperty("MyRefBase", "int x", asOFFSET(MyRefBase, x));
+		engine->RegisterObjectProperty("MyRefBase", "float y", asOFFSET(MyRefBase, y));
+		engine->RegisterObjectMethod("MyRefBase", "int Sum() const", asFUNCTION(MyRefBase_Sum), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectMethod("MyRefBase", "void SetXY(int, float)", asFUNCTION(MyRefBase_SetXY), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(MyRefBase_Dtor), asCALL_CDECL_OBJLAST);
+
+		asIScriptModule* mod = engine->GetModule("test_ref_compare", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		mod->AddScriptSection("test_ref_compare",
+			"class Widget : MyRefBase {                  \n"
+			"  int id;                                    \n"
+			"  Widget() {                                 \n"
+			"    SetXY(1, 2.0f);                          \n"
+			"    id = 100;                                \n"
+			"  }                                           \n"
+			"}                                             \n"
+			"                                              \n"
+			"class Gadget : Widget {                       \n"
+			"  int tag;                                    \n"
+			"  Gadget() {                                 \n"
+			"    SetXY(3, 4.0f);                          \n"
+			"    id = 200;                                \n"
+			"    tag = 300;                               \n"
+			"  }                                           \n"
+			"}                                             \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+		}
+
+		r = ExecuteString(engine,
+			// 1. Identity: same handle
+			"Gadget @g = Gadget();                        \n"
+			"assert(g is g);                              \n"
+			"                                              \n"
+			// 2. Identity: two handles to same object
+			"Gadget @g2 = g;                              \n"
+			"assert(g2 is g);                             \n"
+			"                                              \n"
+			// 3. Cross-type identity: base handle to same object
+			"MyRefBase @b = g;                            \n"
+			"assert(b is g);                              \n"
+			"assert(g is b);                              \n"
+			"                                              \n"
+			// 4. Identity: different objects
+			"Gadget @otherG = Gadget();                   \n"
+			"assert(!(g is otherG));                      \n"
+			"                                              \n"
+			// 5. Upcasted handles still identify same object
+			"Widget @w = g;                               \n"
+			"assert(w is g);                              \n"
+			"assert(w is b);                              \n"
+			"                                              \n"
+			// 6. Identity with null
+			"Gadget @nullHandle;                          \n"
+			"assert(nullHandle is null);                  \n"
+			"assert(!(g is null));                        \n"
+			"                                              \n"
+			// 7. Cross-level: sibling handles (both point to same Gadget)
+			"assert(w is b);                              \n"
+			"assert(b is w);                              \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Ref compare exception");
+			TEST_FAILED;
+		}
+
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+	}
+
+	// ------------------------------------------------------------------
+	// Test ?: Ref type - function returning derived handle
+	// Verifies that a script function can return a handle to a derived
+	// ref type, and the handle lifecycle is properly managed.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		MyRefBase::dtorCount = 0;
+
+		engine->RegisterObjectType("MyRefBase", 0, asOBJ_REF);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_FACTORY, "MyRefBase@ f()", asFUNCTION(MyRefBase_Factory), asCALL_CDECL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_ADDREF, "void f()", asMETHOD(MyRefBase, AddRef), asCALL_THISCALL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_RELEASE, "void f()", asMETHOD(MyRefBase, Release), asCALL_THISCALL);
+		engine->RegisterObjectProperty("MyRefBase", "int x", asOFFSET(MyRefBase, x));
+		engine->RegisterObjectProperty("MyRefBase", "float y", asOFFSET(MyRefBase, y));
+		engine->RegisterObjectMethod("MyRefBase", "int Sum() const", asFUNCTION(MyRefBase_Sum), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectMethod("MyRefBase", "void SetXY(int, float)", asFUNCTION(MyRefBase_SetXY), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(MyRefBase_Dtor), asCALL_CDECL_OBJLAST);
+
+		asIScriptModule* mod = engine->GetModule("test_ref_return_handle", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		mod->AddScriptSection("test_ref_return_handle",
+			"class Widget : MyRefBase {                   \n"
+			"  int id;                                     \n"
+			"  Widget() {                                  \n"
+			"    SetXY(5, 6.0f);                          \n"
+			"    id = 50;                                 \n"
+			"  }                                            \n"
+			"  int GetID() const { return id; }             \n"
+			"}                                              \n"
+			"                                               \n"
+			"Widget@ MakeWidget(int idVal) {                \n"
+			"  Widget @w = Widget();                       \n"
+			"  w.id = idVal;                               \n"
+			"  return w;                                   \n"
+			"}                                              \n"
+			"                                               \n"
+			"Widget@ NullWidget() {                         \n"
+			"  return null;                                \n"
+			"}                                              \n"
+			"                                               \n"
+			// Return base handle from derived object
+			"MyRefBase@ AsBase(Widget @w) {                 \n"
+			"  return w;                                   \n"
+			"}                                              \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+		}
+
+		r = ExecuteString(engine,
+			// 1. Return derived handle
+			"Widget @w = MakeWidget(77);                   \n"
+			"assert(w.id == 77);                           \n"
+			"assert(w.x == 5);                             \n"
+			"assert(w.GetID() == 77);                      \n"
+			"                                               \n"
+			// 2. Multiple return handles - independent objects
+			"Widget @w2 = MakeWidget(88);                  \n"
+			"assert(w2.id == 88);                          \n"
+			"assert(!(w is w2));                           \n"
+			"                                               \n"
+			// 3. Null handle returned
+			"Widget @nullW = NullWidget();                 \n"
+			"assert(nullW is null);                        \n"
+			"                                               \n"
+			// 4. Return base handle from derived argument
+			"MyRefBase @b = AsBase(w);                     \n"
+			"assert(b is w);                               \n"
+			"assert(b.x == 5);                             \n"
+			"assert(b.Sum() == 11);                        \n"  // 5 + 6
+			"                                               \n"
+			// 5. Chain: MakeWidget -> AsBase
+			"MyRefBase @b2 = AsBase(MakeWidget(99));       \n"
+			"assert(b2.x == 5);                            \n"
+			"assert(b2.Sum() == 11);                       \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Ref return handle exception");
+			TEST_FAILED;
+		}
+
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+	}
+
+	// ------------------------------------------------------------------
+	// Test ?: Ref type - handle scope and lifecycle management
+	// Verifies that handles in nested scopes properly manage ref counts,
+	// and objects are destroyed when all handles go out of scope.
+	// ------------------------------------------------------------------
+	{
+		asIScriptEngine* engine = asCreateScriptEngine(ANGELSCRIPT_VERSION);
+		engine->SetMessageCallback(asMETHOD(CBufferedOutStream, Callback), &bout, asCALL_THISCALL);
+		engine->RegisterGlobalFunction("void assert(bool)", asFUNCTION(Assert), asCALL_GENERIC);
+
+		MyRefBase::dtorCount = 0;
+
+		engine->RegisterObjectType("MyRefBase", 0, asOBJ_REF);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_FACTORY, "MyRefBase@ f()", asFUNCTION(MyRefBase_Factory), asCALL_CDECL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_ADDREF, "void f()", asMETHOD(MyRefBase, AddRef), asCALL_THISCALL);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_RELEASE, "void f()", asMETHOD(MyRefBase, Release), asCALL_THISCALL);
+		engine->RegisterObjectProperty("MyRefBase", "int x", asOFFSET(MyRefBase, x));
+		engine->RegisterObjectProperty("MyRefBase", "float y", asOFFSET(MyRefBase, y));
+		engine->RegisterObjectMethod("MyRefBase", "int Sum() const", asFUNCTION(MyRefBase_Sum), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectMethod("MyRefBase", "void SetXY(int, float)", asFUNCTION(MyRefBase_SetXY), asCALL_CDECL_OBJFIRST);
+		engine->RegisterObjectBehaviour("MyRefBase", asBEHAVE_DESTRUCT, "void f()", asFUNCTION(MyRefBase_Dtor), asCALL_CDECL_OBJLAST);
+
+		asIScriptModule* mod = engine->GetModule("test_ref_scope", asGM_ALWAYS_CREATE);
+		bout.buffer = "";
+
+		mod->AddScriptSection("test_ref_scope",
+			"class Widget : MyRefBase {                   \n"
+			"  int id;                                     \n"
+			"  Widget() { id = 0; }                        \n"
+			"}                                              \n"
+			"                                               \n"
+			"void ScopeTest() {                            \n"
+			"  {                                            \n"
+			"    Widget @inner = Widget();                 \n"
+			"    inner.id = 1;                            \n"
+			"    assert(inner.id == 1);                    \n"
+			"  }                                            \n"
+			"  /* inner handle destroyed here */            \n"
+			"  {                                            \n"
+			"    Widget @outer = Widget();                 \n"
+			"    outer.id = 2;                            \n"
+			"    {                                          \n"
+			"      Widget @inner2 = outer;                \n"
+			"      assert(inner2.id == 2);                 \n"
+			"      assert(inner2 is outer);                 \n"
+			"    }                                          \n"
+			"    /* inner2 released, outer still alive */   \n"
+			"    assert(outer.id == 2);                    \n"
+			"  }                                            \n"
+			"  /* outer handle destroyed here */            \n"
+			"}                                              \n"
+		);
+
+		r = mod->Build();
+		if (r < 0)
+		{
+			PRINTF("Build failed: %s\n", bout.buffer.c_str());
+			TEST_FAILED;
+		}
+
+		MyRefBase::dtorCount = 0;
+
+		r = ExecuteString(engine,
+			"ScopeTest();                                  \n"
+			"Widget @globalW = Widget();                   \n"
+			"assert(globalW.id == 0);                      \n"
+			, mod);
+		if (r != asEXECUTION_FINISHED)
+		{
+			if (r == asEXECUTION_EXCEPTION)
+				PRINTF("Exception: %s\n", "Ref scope exception");
+			TEST_FAILED;
+		}
+
+		// ScopeTest creates 3 Widget objects (inner, outer, global) but inner and
+		// outer are released when their scopes end, global lives until GC.
+		// Also one temporary Widget from the factory in ScopeTest's inner scope.
+		// Total: 3 Widget/MyRefBase objects created in script.
+		engine->GarbageCollect();
+		engine->ShutDownAndRelease();
+		if (MyRefBase::dtorCount != 3)
+		{
+			PRINTF("Expected 3 MyRefBase destructor calls, got %d\n", MyRefBase::dtorCount);
 			TEST_FAILED;
 		}
 	}

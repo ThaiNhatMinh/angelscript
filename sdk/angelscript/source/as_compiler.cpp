@@ -8018,14 +8018,28 @@ asUINT asCCompiler::ImplicitConvObjectRef(asCExprContext *ctx, const asCDataType
 				asCObjectType *fromType = CastToObjectType(ctx->type.dataType.GetTypeInfo());
 				asCObjectType *toType = CastToObjectType(to.GetTypeInfo());
 				// When casting from a script class to a registered (non-script) base class,
-				// the base class sub-object starts after the asCScriptObject header, so we
-				// need to adjust the pointer to point to the base class sub-object
+				// we need to adjust the pointer to point to the base class sub-object.
+				// For value types the sub-object is embedded directly after the asCScriptObject header.
+				// For ref types the script object holds a $base pointer to the separately allocated
+				// native ref object, so we need to dereference it.
 				if (fromType && toType &&
 						(fromType->flags & asOBJ_SCRIPT_OBJECT) && !(toType->flags & asOBJ_SCRIPT_OBJECT) && !ctx->type.IsNullConstant())
 				{
 					if (ctx->type.dataType.IsReference())
 						Dereference(ctx, true);
-					ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+
+					asCObjectProperty *baseProp = fromType->GetHiddenBaseProperty();
+					if (baseProp)
+					{
+						// Ref type: $base is a pointer to the native ref sub-object
+						ctx->bc.InstrSHORT_DW(asBC_ADDSi, (short)baseProp->byteOffset, 0);
+						ctx->bc.Instr(asBC_RDSPtr);
+					}
+					else
+					{
+						// Value type: sub-object is directly after the asCScriptObject header
+						ctx->bc.InstrSHORT_DW(asBC_ADDSi, sizeof(asCScriptObject), 0);
+					}
 				}
 			}
 			ctx->type.dataType.SetTypeInfo(to.GetTypeInfo());
